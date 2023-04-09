@@ -15,7 +15,9 @@ void print_int(int x) {
   };
 
   /* YOUR CODE START HERE */
-
+  for (int i = 0; i < 32; ++i, x = x >> 1)
+    output[31 - i] = (x & 1) + '0';
+  output[32] = '\0';
   /* YOUR CODE END HERE */
 
   printf("%s\n", output);
@@ -28,7 +30,9 @@ void print_long(long x) {
   };
 
   /* YOUR CODE START HERE */
-
+  for (int i = 0; i < 64; ++i, x = x >> 1)
+    output[63 - i] = (x & 1) + '0';
+  output[64] = '\0';
   /* YOUR CODE END HERE */
 
   printf("%s\n", output);
@@ -41,7 +45,16 @@ void print_float(float x) {
   };
 
   /* YOUR CODE START HERE */
-
+  union temp {
+    int i;
+    float f;
+  };
+  union temp U;
+  U.f = x;
+  int t = U.i;
+  for (int i = 0; i < 32; ++i, t = t >> 1)
+    output[31 - i] = (t & 1) + '0';
+  output[32] = '\0';
   /* YOUR CODE END HERE */
 
   printf("%s\n", output);
@@ -54,7 +67,16 @@ void print_double(double x) {
   };
 
   /* YOUR CODE START HERE */
-
+  union temp {
+    long l;
+    double d;
+  };
+  union temp U;
+  U.d = x;
+  long t = U.l;
+  for (int i = 0; i < 64; ++i, t = t >> 1)
+    output[63 - i] = (t & 1) + '0';
+  output[64] = '\0';
   /* YOUR CODE END HERE */
 
   printf("%s\n", output);
