@@ -15,19 +15,16 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K,
   omp_set_num_threads(num_threads);
   float a;
   float sh[N];
-  #pragma omp parallel
-  {
-    #pragma omp for nowait private(a,sh)
-    for (int m = 0; m < M; ++m) {
-      memset(sh, 0, N * sizeof(float));
-      for (int k = 0; k < K; ++k) {
-        a = A[k + K * m];
-        for (int n = 0; n < N; ++n) {
-          sh[n] += a * B[n + N * k];
-        }
+  #pragma omp parallel for private(a) reduction(+:sh[:N])
+  for (int m = 0; m < M; ++m) {
+    memset(sh, 0, N * sizeof(float));
+    for (int k = 0; k < K; ++k) {
+      a = A[k + K * m];
+      for (int n = 0; n < N; ++n) {
+        sh[n] += a * B[n + N * k];
       }
-      memcpy(&C[N*m], &sh[0], N * sizeof(float));
     }
+    memcpy(&C[N*m], &sh[0], N * sizeof(float));
   }
   return;
 }
