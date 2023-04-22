@@ -15,7 +15,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K,
   omp_set_num_threads(num_threads);
   float a;
   float sh[N];
-  #pragma omp parallel for private(a) reduction(+:sh[:N])
+  #pragma omp parallel for private(a, sh)
   for (int m = 0; m < M; ++m) {
     memset(sh, 0, N * sizeof(float));
     for (int k = 0; k < K; ++k) {
