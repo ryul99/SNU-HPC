@@ -1,0 +1,110 @@
+Options:
+  Problem size: M = 4096, N = 4096, K = 4096
+  Number of threads: 32
+  Number of iterations: 10
+  Print matrix: off
+  Validation: on
+
+Initializing... done!
+Calculating...(iter=0) 1.721591 sec
+Calculating...(iter=1) 1.404416 sec
+Calculating...(iter=2) 1.402174 sec
+Calculating...(iter=3) 1.621535 sec
+Calculating...(iter=4) 1.380676 sec
+Calculating...(iter=5) 1.400552 sec
+Calculating...(iter=6) 1.650598 sec
+Calculating...(iter=7) 1.461049 sec
+Calculating...(iter=8) 1.451269 sec
+Calculating...(iter=9) 1.458989 sec
+Validating...
+Result: VALID
+Avg. time: 1.495285 sec
+Avg. throughput: 91.914897 GFLOPS
+Options:
+  Problem size: M = 4096, N = 4096, K = 4096
+  Number of threads: 32
+  Number of iterations: 10
+  Print matrix: off
+  Validation: on
+
+Initializing... done!
+Calculating...(iter=0) 1.730643 sec
+Calculating...(iter=1) 1.402417 sec
+Calculating...(iter=2) 1.400150 sec
+Calculating...(iter=3) 1.843477 sec
+Calculating...(iter=4) 1.420207 sec
+Calculating...(iter=5) 1.506954 sec
+Calculating...(iter=6) 1.575560 sec
+Calculating...(iter=7) 1.669039 sec
+Calculating...(iter=8) 1.470659 sec
+Calculating...(iter=9) 1.469476 sec
+Validating...
+Result: VALID
+Avg. time: 1.548858 sec
+Avg. throughput: 88.735664 GFLOPS
+Options:
+  Problem size: M = 4096, N = 4096, K = 4096
+  Number of threads: 32
+  Number of iterations: 10
+  Print matrix: off
+  Validation: on
+
+Initializing... done!
+Calculating...(iter=0) 1.802990 sec
+Calculating...(iter=1) 1.458651 sec
+Calculating...(iter=2) 1.672499 sec
+Calculating...(iter=3) 1.490953 sec
+Calculating...(iter=4) 1.482336 sec
+Calculating...(iter=5) 1.481923 sec
+Calculating...(iter=6) 1.659373 sec
+Calculating...(iter=7) 1.466971 sec
+Calculating...(iter=8) 1.639659 sec
+Calculating...(iter=9) 1.401262 sec
+Validating...
+Result: VALID
+Avg. time: 1.555662 sec
+Avg. throughput: 88.347582 GFLOPS
+Options:
+  Problem size: M = 4096, N = 4096, K = 4096
+  Number of threads: 32
+  Number of iterations: 10
+  Print matrix: off
+  Validation: on
+
+Initializing... done!
+Calculating...(iter=0) 1.534653 sec
+Calculating...(iter=1) 1.470745 sec
+Calculating...(iter=2) 1.467154 sec
+Calculating...(iter=3) 1.654832 sec
+Calculating...(iter=4) 1.457541 sec
+Calculating...(iter=5) 1.681329 sec
+Calculating...(iter=6) 1.512876 sec
+Calculating...(iter=7) 1.501367 sec
+Calculating...(iter=8) 1.502032 sec
+Calculating...(iter=9) 1.632094 sec
+Validating...
+Result: VALID
+Avg. time: 1.541462 sec
+Avg. throughput: 89.161414 GFLOPS
+Options:
+  Problem size: M = 4096, N = 4096, K = 4096
+  Number of threads: 32
+  Number of iterations: 10
+  Print matrix: off
+  Validation: on
+
+Initializing... done!
+Calculating...(iter=0) 1.848066 sec
+Calculating...(iter=1) 1.523828 sec
+Calculating...(iter=2) 1.733726 sec
+Calculating...(iter=3) 1.605598 sec
+Calculating...(iter=4) 1.558283 sec
+Calculating...(iter=5) 1.804963 sec
+Calculating...(iter=6) 1.636281 sec
+Calculating...(iter=7) 1.806452 sec
+Calculating...(iter=8) 1.510038 sec
+Calculating...(iter=9) 1.506575 sec
+Validating...
+Result: VALID
+Avg. time: 1.653381 sec
+Avg. throughput: 83.125997 GFLOPS
