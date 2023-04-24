@@ -19,7 +19,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K,
   {
     int tid = omp_get_thread_num();
     int pos = tid * N;
-    #pragma omp for nowait
+    #pragma omp for nowait schedule(guided, 2)
     for (int m = 0; m < M; ++m) {
       memset(&sh[pos], 0, N * sizeof(float));
       for (int k = 0; k < K; ++k) {
