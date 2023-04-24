@@ -6,20 +6,20 @@ Options:
   Validation: on
 
 Initializing... done!
-Calculating...(iter=0) 1.721591 sec
-Calculating...(iter=1) 1.404416 sec
-Calculating...(iter=2) 1.402174 sec
-Calculating...(iter=3) 1.621535 sec
-Calculating...(iter=4) 1.380676 sec
-Calculating...(iter=5) 1.400552 sec
-Calculating...(iter=6) 1.650598 sec
-Calculating...(iter=7) 1.461049 sec
-Calculating...(iter=8) 1.451269 sec
-Calculating...(iter=9) 1.458989 sec
+Calculating...(iter=0) 1.951875 sec
+Calculating...(iter=1) 1.569321 sec
+Calculating...(iter=2) 1.776027 sec
+Calculating...(iter=3) 1.622075 sec
+Calculating...(iter=4) 1.828010 sec
+Calculating...(iter=5) 1.634433 sec
+Calculating...(iter=6) 1.628560 sec
+Calculating...(iter=7) 1.827215 sec
+Calculating...(iter=8) 1.623618 sec
+Calculating...(iter=9) 1.614597 sec
 Validating...
 Result: VALID
-Avg. time: 1.495285 sec
-Avg. throughput: 91.914897 GFLOPS
+Avg. time: 1.707573 sec
+Avg. throughput: 80.487886 GFLOPS
 Options:
   Problem size: M = 4096, N = 4096, K = 4096
   Number of threads: 32
@@ -28,20 +28,20 @@ Options:
   Validation: on
 
 Initializing... done!
-Calculating...(iter=0) 1.730643 sec
-Calculating...(iter=1) 1.402417 sec
-Calculating...(iter=2) 1.400150 sec
-Calculating...(iter=3) 1.843477 sec
-Calculating...(iter=4) 1.420207 sec
-Calculating...(iter=5) 1.506954 sec
-Calculating...(iter=6) 1.575560 sec
-Calculating...(iter=7) 1.669039 sec
-Calculating...(iter=8) 1.470659 sec
-Calculating...(iter=9) 1.469476 sec
+Calculating...(iter=0) 1.768984 sec
+Calculating...(iter=1) 1.437430 sec
+Calculating...(iter=2) 1.647395 sec
+Calculating...(iter=3) 1.487997 sec
+Calculating...(iter=4) 1.457097 sec
+Calculating...(iter=5) 1.448597 sec
+Calculating...(iter=6) 1.683537 sec
+Calculating...(iter=7) 1.418851 sec
+Calculating...(iter=8) 1.412399 sec
+Calculating...(iter=9) 1.411717 sec
 Validating...
 Result: VALID
-Avg. time: 1.548858 sec
-Avg. throughput: 88.735664 GFLOPS
+Avg. time: 1.517400 sec
+Avg. throughput: 90.575267 GFLOPS
 Options:
   Problem size: M = 4096, N = 4096, K = 4096
   Number of threads: 32
@@ -50,20 +50,20 @@ Options:
   Validation: on
 
 Initializing... done!
-Calculating...(iter=0) 1.802990 sec
-Calculating...(iter=1) 1.458651 sec
-Calculating...(iter=2) 1.672499 sec
-Calculating...(iter=3) 1.490953 sec
-Calculating...(iter=4) 1.482336 sec
-Calculating...(iter=5) 1.481923 sec
-Calculating...(iter=6) 1.659373 sec
-Calculating...(iter=7) 1.466971 sec
-Calculating...(iter=8) 1.639659 sec
-Calculating...(iter=9) 1.401262 sec
+Calculating...(iter=0) 1.792372 sec
+Calculating...(iter=1) 1.419252 sec
+Calculating...(iter=2) 1.604763 sec
+Calculating...(iter=3) 1.431190 sec
+Calculating...(iter=4) 1.429461 sec
+Calculating...(iter=5) 1.429045 sec
+Calculating...(iter=6) 1.636137 sec
+Calculating...(iter=7) 1.435111 sec
+Calculating...(iter=8) 1.423736 sec
+Calculating...(iter=9) 1.435997 sec
 Validating...
 Result: VALID
-Avg. time: 1.555662 sec
-Avg. throughput: 88.347582 GFLOPS
+Avg. time: 1.503706 sec
+Avg. throughput: 91.400125 GFLOPS
 Options:
   Problem size: M = 4096, N = 4096, K = 4096
   Number of threads: 32
@@ -72,20 +72,20 @@ Options:
   Validation: on
 
 Initializing... done!
-Calculating...(iter=0) 1.534653 sec
-Calculating...(iter=1) 1.470745 sec
-Calculating...(iter=2) 1.467154 sec
-Calculating...(iter=3) 1.654832 sec
-Calculating...(iter=4) 1.457541 sec
-Calculating...(iter=5) 1.681329 sec
-Calculating...(iter=6) 1.512876 sec
-Calculating...(iter=7) 1.501367 sec
-Calculating...(iter=8) 1.502032 sec
-Calculating...(iter=9) 1.632094 sec
+Calculating...(iter=0) 1.428403 sec
+Calculating...(iter=1) 1.409811 sec
+Calculating...(iter=2) 1.600100 sec
+Calculating...(iter=3) 1.445309 sec
+Calculating...(iter=4) 1.406783 sec
+Calculating...(iter=5) 1.416693 sec
+Calculating...(iter=6) 1.665631 sec
+Calculating...(iter=7) 1.419460 sec
+Calculating...(iter=8) 1.588872 sec
+Calculating...(iter=9) 1.373128 sec
 Validating...
 Result: VALID
-Avg. time: 1.541462 sec
-Avg. throughput: 89.161414 GFLOPS
+Avg. time: 1.475419 sec
+Avg. throughput: 93.152504 GFLOPS
 Options:
   Problem size: M = 4096, N = 4096, K = 4096
   Number of threads: 32
@@ -94,17 +94,17 @@ Options:
   Validation: on
 
 Initializing... done!
-Calculating...(iter=0) 1.848066 sec
-Calculating...(iter=1) 1.523828 sec
-Calculating...(iter=2) 1.733726 sec
-Calculating...(iter=3) 1.605598 sec
-Calculating...(iter=4) 1.558283 sec
-Calculating...(iter=5) 1.804963 sec
-Calculating...(iter=6) 1.636281 sec
-Calculating...(iter=7) 1.806452 sec
-Calculating...(iter=8) 1.510038 sec
-Calculating...(iter=9) 1.506575 sec
+Calculating...(iter=0) 1.441705 sec
+Calculating...(iter=1) 1.433217 sec
+Calculating...(iter=2) 1.596011 sec
+Calculating...(iter=3) 1.439531 sec
+Calculating...(iter=4) 1.428926 sec
+Calculating...(iter=5) 1.431662 sec
+Calculating...(iter=6) 1.594081 sec
+Calculating...(iter=7) 1.392747 sec
+Calculating...(iter=8) 1.390036 sec
+Calculating...(iter=9) 1.388905 sec
 Validating...
 Result: VALID
-Avg. time: 1.653381 sec
-Avg. throughput: 83.125997 GFLOPS
+Avg. time: 1.453682 sec
+Avg. throughput: 94.545400 GFLOPS
