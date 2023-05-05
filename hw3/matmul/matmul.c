@@ -12,6 +12,18 @@ __m512 __fma(__m512 a, __m512 b, __m512 c, __m512 curr) {
   return _mm512_add_ps(curr, _mm512_fmadd_ps(a, b, c));
 }
 
+__m512 __vectordot(float *A, float *B, __m512 c, int K) {
+  __m512 curr = _mm512_set1_ps(0);
+  __m512 a, b;
+
+  for (int k = 0; k < K; k += 16) {
+    a = _mm512_load_ps(&A[k]);
+    b = _mm512_load_ps(&B[k]);
+    curr = __fma(a, b, c, curr);;
+  }
+  return curr;
+}
+
 void matmul(float *A, float *B, float *C, int M, int N, int K,
     int threads_per_process, int mpi_rank, int mpi_world_size) {
   // TODO: FILL_IN_HERE
@@ -53,12 +65,7 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
     for (int m = 0; m < chunksize; ++m) {
       for (int n = 0; n < N; ++n) {
         c = _mm512_set1_ps(Cc[n + N * m]);
-        curr = _mm512_set1_ps(0);
-        for (int k = 0; k < K; k += 16) {
-          a = _mm512_load_ps(&Ac[k + K * m]);
-          b = _mm512_load_ps(&Bp[k + K * n]);
-          curr = __fma(a, b, c, curr);;
-        }
+        curr =  __vectordot(&Ac[K * m], &Bp[K * n], c, K);
         Cc[n + N * m] = _mm512_reduce_add_ps(curr);
       }
     }
