@@ -10,11 +10,6 @@
  #define MIN(a,b) ((a) < (b) ? (a) : (b))
  #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-__m512 __fma(__m512 a, __m512 b, __m512 c) {
-
-  return _mm512_fmadd_ps(a, b, c);
-}
-
 __m512 __vectordot(float *A, float *B, int K, int mpi_world_size) {
   __m512 curr = _mm512_set1_ps(0);
   __m512 a, b;
@@ -22,7 +17,7 @@ __m512 __vectordot(float *A, float *B, int K, int mpi_world_size) {
   for (int k = 0; k < K; k += 16) {
     a = _mm512_load_ps(&A[k]);
     b = _mm512_load_ps(&B[k]);
-    curr = __fma(a, b, curr);;
+    curr = _mm512_fmadd_ps(a, b, curr);;
   }
   return curr;
 }
