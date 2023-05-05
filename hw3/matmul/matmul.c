@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+ #define MIN(a,b) ((a) < (b) ? (a) : (b))
+ #define MAX(a,b) ((a) > (b) ? (a) : (b))
+
 __m512 __fma(__m512 a, __m512 b, __m512 c) {
 
   return _mm512_fmadd_ps(a, b, c);
@@ -31,6 +34,7 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   __m512 curr;
   // int chunkM = M / mpi_world_size;
   int chunkK = K / mpi_world_size;
+  int sz = 16;
   float *Bp, *Bc, *Cc;
   // alloc_mat(&Ac, K, chunkM);
   alloc_mat(&Bp, N, chunkK);
@@ -55,20 +59,23 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
       Bp[k + chunkK * n] = Bc[n + N * k];
     }
   }
-  #pragma omp barrier
   #pragma omp parallel private(curr)
   {
-    #pragma omp for
-    for (int m = 0; m < M; ++m) {
-      for (int n = 0; n < N; ++n) {
-        curr = __vectordot(&A[mpi_rank * chunkK + K * m], &Bp[chunkK * n], chunkK, mpi_world_size);
-        Cc[n + N * m] = _mm512_reduce_add_ps(curr);
+    #pragma omp for nowait
+    for (int mm = 0; mm < M; mm += sz) {
+      for (int nn = 0; nn < N; nn += sz) {
+        for (int m = mm; m < MIN(mm + sz, M); ++m) {
+          for (int n = nn; n < MIN(nn + sz, N); ++n) {
+            curr = __vectordot(&A[mpi_rank * chunkK + K * m], &Bp[chunkK * n], chunkK, mpi_world_size);
+            Cc[n + N * m] = _mm512_reduce_add_ps(curr);
+          }
+        }
       }
     }
   }
-  MPI_Barrier(MPI_COMM_WORLD);
   MPI_Reduce(Cc, C, N * M, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
   // free(Ac);
-  free(Bp);
-  free(Cc);
+  // free(Bp);
+  // free(Bc);
+  // free(Cc);
 }
