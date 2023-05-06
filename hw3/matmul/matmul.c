@@ -48,14 +48,14 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   // MPI_Scatter(A, K * chunkM, MPI_FLOAT, Ac, K * chunkM, MPI_FLOAT, 0, MPI_COMM_WORLD);
   MPI_Bcast(A, M * K, MPI_FLOAT, 0, MPI_COMM_WORLD);
   MPI_Scatter(B, chunkK * N, MPI_FLOAT, Bc, chunkK * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
-  #pragma omp parallel for
-  for (int k = 0; k < chunkK; ++k) {
-    for (int n = 0; n < N; ++n) {
-      Bp[k + chunkK * n] = Bc[n + N * k];
-    }
-  }
   #pragma omp parallel private(curr)
   {
+    #pragma omp for nowait
+    for (int k = 0; k < chunkK; ++k) {
+      for (int n = 0; n < N; ++n) {
+        Bp[k + chunkK * n] = Bc[n + N * k];
+      }
+    }
     #pragma omp for nowait
     for (int mm = 0; mm < M; mm += sz) {
       for (int nn = 0; nn < N; nn += sz) {
