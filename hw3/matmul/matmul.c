@@ -10,6 +10,18 @@
  #define MIN(a,b) ((a) < (b) ? (a) : (b))
  #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
+void transpose(float *A, int M, int N) {
+  int temp;
+  #pragma omp for private(temp)
+  for (int m = 0; m < M; ++m) {
+    for (int n = 0; n < N; ++n) {
+      temp = A[n + N * m];
+      A[n + N * m] = A[m + M * n];
+      A[m + M * n] = temp;
+    }
+  }
+}
+
 __m512 __vectordot(float *A, float *B, int K, int mpi_world_size) {
   __m512 curr = _mm512_set1_ps(0);
   __m512 a, b;
