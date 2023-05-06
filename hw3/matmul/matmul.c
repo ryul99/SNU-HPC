@@ -37,14 +37,15 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   // TODO: FILL_IN_HERE
   omp_set_num_threads(threads_per_process);
   __m512 curr;
-  // int chunkM = M / mpi_world_size;
-  int chunkK = K / mpi_world_size;
-  int sz = 16;
-  float *Bc, *Cc;
-  float *Bp;
-  // alloc_mat(&Ac, K, chunkM);
-  alloc_mat(&Bc, chunkK, N);
-  alloc_mat(&Bp, chunkK, N);
+  int chunkM = M / mpi_world_size;
+  // int chunkK = K / mpi_world_size;
+  int sz = 32;
+  float *Ac, *Cc;
+  float *Ap, *Bp;
+  alloc_mat(&Ac, K, chunkM);
+  // alloc_mat(&Bc, chunkK, N);
+  alloc_mat(&Ap, chunkM, K);
+  alloc_mat(&Bp, N, K);
   alloc_mat(&Cc, N, M);
 
   // A: M x K
@@ -57,24 +58,24 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
 
   // Bp: N x chunkK
   // MPI_Scatter(A, K * chunkM, MPI_FLOAT, Ac, K * chunkM, MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(A, M * K, MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Scatter(B, chunkK * N, MPI_FLOAT, Bc, chunkK * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Scatter(A, chunkM * K, MPI_FLOAT, Ac, chunkM * K, MPI_FLOAT, 0, MPI_COMM_WORLD);
   #pragma omp parallel private(curr)
   {
-    transpose(Bc, Bp, chunkK, N);
+    transpose(B, Bp, K, N);
     #pragma omp for
-    for (int mm = 0; mm < M; mm += sz) {
+    for (int mm = 0; mm < chunkM; mm += sz) {
       for (int nn = 0; nn < N; nn += sz) {
-        for (int m = mm; m < MIN(mm + sz, M); ++m) {
+        for (int m = mm; m < MIN(mm + sz, chunkM); ++m) {
           for (int n = nn; n < MIN(nn + sz, N); ++n) {
-            curr = __vectordot(&A[mpi_rank * chunkK + K * m], &Bp[chunkK * n], chunkK, mpi_world_size);
+            curr = __vectordot(&Ac[K * m], &Bp[K * n], K, mpi_world_size);
             Cc[n + N * m] = _mm512_reduce_add_ps(curr);
           }
         }
       }
     }
   }
-  MPI_Reduce(Cc, C, N * M, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Gather(Cc, chunkM * N, MPI_FLOAT, C, chunkM * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
   // free(Ac);
   // free(Bp);
   // free(Bc);
