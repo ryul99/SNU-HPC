@@ -10,14 +10,12 @@
  #define MIN(a,b) ((a) < (b) ? (a) : (b))
  #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-void transpose(float *A, int I, int J) {
-  int temp;
-  #pragma omp for private(temp)
+void transpose(float *src, float *dst, int I, int J) {
+  // I x J -> J x I
+  #pragma omp for
   for (int i = 0; i < I; ++i) {
-    for (int j = i + 1; j < J; ++j) {
-      temp = A[j + J * i];
-      A[j + J * i] = A[i + I * j];
-      A[i + I * j] = temp;
+    for (int j = 0; j < J; ++j) {
+      dst[i + I * j] = src[j + J * i];
     }
   }
 }
