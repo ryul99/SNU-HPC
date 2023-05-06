@@ -15,8 +15,8 @@ __m512 __vectordot(float *A, float *B, int K, int mpi_world_size) {
   __m512 a, b;
 
   for (int k = 0; k < K; k += 16) {
-    a = _mm512_load_ps(&A[k]);
-    b = _mm512_load_ps(&B[k]);
+    a = _mm512_loadu_ps(&A[k]);
+    b = _mm512_loadu_ps(&B[k]);
     curr = _mm512_fmadd_ps(a, b, curr);;
   }
   return curr;
