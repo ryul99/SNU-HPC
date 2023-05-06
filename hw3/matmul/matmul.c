@@ -10,12 +10,21 @@
  #define MIN(a,b) ((a) < (b) ? (a) : (b))
  #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-void transpose(float *src, float *dst, const int I, const int J) {
+void transpose_single(float *src, float *dst, const int I, const int J, const int block_size) {
+  // I x J -> J x I
+  for (int i = 0; i < block_size; ++i) {
+    for (int j = 0; j < block_size; ++j) {
+      dst[i + I * j] = src[j + J * i];
+    }
+  }
+}
+
+void transpose(float *src, float *dst, const int I, const int J, const int block_size) {
   // I x J -> J x I
   #pragma omp for
-  for (int i = 0; i < I; ++i) {
-    for (int j = 0; j < J; ++j) {
-      dst[i + I * j] = src[j + J * i];
+  for (int i = 0; i < I; i += block_size) {
+    for (int j = 0; j < J; j += block_size) {
+      transpose_single(&src[j + J * i], &dst[i + I * j], I, J, block_size);
     }
   }
 }
@@ -40,6 +49,7 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   const int chunkM = M / mpi_world_size;
   // const int chunkK = K / mpi_world_size;
   const int sz = 32;
+  const int tp_sz = 32;
   float *Ac, *Cc;
   float *Ap, *Bp;
   alloc_mat(&Ac, K, chunkM);
@@ -62,7 +72,7 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   MPI_Scatter(A, chunkM * K, MPI_FLOAT, Ac, chunkM * K, MPI_FLOAT, 0, MPI_COMM_WORLD);
   #pragma omp parallel private(curr)
   {
-    transpose(B, Bp, K, N);
+    transpose(B, Bp, K, N, tp_sz);
     #pragma omp for
     for (int mm = 0; mm < chunkM; mm += sz) {
       for (int nn = 0; nn < N; nn += sz) {
