@@ -40,10 +40,11 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   // int chunkM = M / mpi_world_size;
   int chunkK = K / mpi_world_size;
   int sz = 16;
-  float *Bp, *Bc, *Cc;
+  float *Bc, *Cc;
+  float *Bp;
   // alloc_mat(&Ac, K, chunkM);
-  alloc_mat(&Bp, N, chunkK);
   alloc_mat(&Bc, chunkK, N);
+  alloc_mat(&Bp, chunkK, N);
   alloc_mat(&Cc, N, M);
 
   // A: M x K
@@ -60,12 +61,7 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   MPI_Scatter(B, chunkK * N, MPI_FLOAT, Bc, chunkK * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
   #pragma omp parallel private(curr)
   {
-    #pragma omp for
-    for (int k = 0; k < chunkK; ++k) {
-      for (int n = 0; n < N; ++n) {
-        Bp[k + chunkK * n] = Bc[n + N * k];
-      }
-    }
+    transpose(Bc, Bp, chunkK, N);
     #pragma omp for
     for (int mm = 0; mm < M; mm += sz) {
       for (int nn = 0; nn < N; nn += sz) {
