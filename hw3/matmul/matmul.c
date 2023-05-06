@@ -10,7 +10,7 @@
  #define MIN(a,b) ((a) < (b) ? (a) : (b))
  #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-void transpose(float *src, float *dst, int I, int J) {
+void transpose(float *src, float *dst, const int I, const int J) {
   // I x J -> J x I
   #pragma omp for
   for (int i = 0; i < I; ++i) {
@@ -20,7 +20,7 @@ void transpose(float *src, float *dst, int I, int J) {
   }
 }
 
-__m512 __vectordot(float *A, float *B, int K, int mpi_world_size) {
+__m512 __vectordot(float *A, float *B, const int K, const int mpi_world_size) {
   __m512 curr = _mm512_set1_ps(0);
   __m512 a, b;
 
@@ -37,9 +37,9 @@ void matmul(float *A, float *B, float *C, int M, int N, int K,
   // TODO: FILL_IN_HERE
   omp_set_num_threads(threads_per_process);
   __m512 curr;
-  int chunkM = M / mpi_world_size;
-  // int chunkK = K / mpi_world_size;
-  int sz = 32;
+  const int chunkM = M / mpi_world_size;
+  // const int chunkK = K / mpi_world_size;
+  const int sz = 32;
   float *Ac, *Cc;
   float *Ap, *Bp;
   alloc_mat(&Ac, K, chunkM);
