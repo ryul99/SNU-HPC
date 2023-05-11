@@ -24,10 +24,8 @@ static cl_mem a_d, b_d, c_d;
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // float elapsed_time;
-  int SZ;
-  if (N % 32 == 0)
-    SZ = 32;
-  else
+  int SZ = 32;
+  if (N % SZ)
     SZ = 1;  
 
   // A: M x K
