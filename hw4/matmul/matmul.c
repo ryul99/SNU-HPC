@@ -23,6 +23,39 @@ static cl_mem a_d, b_d, c_d;
 
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
+  // float elapsed_time;
+  int SZ;
+  if (N % 32 == 0)
+    SZ = 32;
+  else
+    SZ = 1;  
+
+  // A: M x K
+  // B: K x N
+  // C: M x N
+
+  clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*) &a_d);
+  clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*) &b_d);
+  clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*) &c_d);
+  clSetKernelArg(kernel, 3, sizeof(int), (void*) &M);
+  clSetKernelArg(kernel, 4, sizeof(int), (void*) &N);
+  clSetKernelArg(kernel, 5, sizeof(int), (void*) &K);
+
+  clEnqueueWriteBuffer(queue, a_d, CL_FALSE, 0, M * K * sizeof(float), A, 0, NULL, NULL);
+  clEnqueueWriteBuffer(queue, b_d, CL_FALSE, 0, N * K * sizeof(float), B, 0, NULL, NULL);
+
+  const size_t global_work_size[2] = { M, N };
+  const size_t local_work_size[2] = { 1, SZ };
+  
+  // timer_start(1);
+  clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_work_size, local_work_size, 0, NULL, NULL);
+  // elapsed_time = timer_stop(1);
+  // printf("CAL: %f sec\n", elapsed_time);
+
+  // timer_start(2);
+  clEnqueueReadBuffer(queue, c_d, CL_TRUE, 0, M * N * sizeof(float), C, 0, NULL, NULL);
+  // elapsed_time = timer_stop(2);
+  // printf("READ: %f sec\n", elapsed_time);
 }
 
 static void print_platform_info(cl_platform_id platform) {
