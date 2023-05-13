@@ -41,7 +41,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   clEnqueueWriteBuffer(queue, a_d, CL_FALSE, 0, M * K * sizeof(float), A, 0, NULL, NULL);
   clEnqueueWriteBuffer(queue, b_d, CL_FALSE, 0, N * K * sizeof(float), B, 0, NULL, NULL);
-  clEnqueueReadBuffer(queue, c_d, CL_TRUE, 0, M * N * sizeof(float), C, 0, NULL, NULL);
 
   const size_t global_work_size[2] = { M, N };
   const size_t local_work_size[2] = { 1, SZ };
@@ -52,6 +51,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // printf("CAL: %f sec\n", elapsed_time);
 
   // timer_start(2);
+  clEnqueueReadBuffer(queue, c_d, CL_TRUE, 0, M * N * sizeof(float), C, 0, NULL, NULL);
   // elapsed_time = timer_stop(2);
   // printf("READ: %f sec\n", elapsed_time);
 }
