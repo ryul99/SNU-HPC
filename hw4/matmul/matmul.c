@@ -24,7 +24,7 @@ static cl_mem a_d, b_d, c_d;
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // float elapsed_time;
-  int SZ = 32;
+  int SZ = 8;
   if (N % SZ)
     SZ = 1;  
 
@@ -38,12 +38,15 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   clSetKernelArg(kernel, 3, sizeof(int), (void*) &M);
   clSetKernelArg(kernel, 4, sizeof(int), (void*) &N);
   clSetKernelArg(kernel, 5, sizeof(int), (void*) &K);
+  clSetKernelArg(kernel, 6, sizeof(int), (void*) &SZ);
+  clSetKernelArg(kernel, 7, sizeof(float) * SZ * SZ, NULL);
+  clSetKernelArg(kernel, 8, sizeof(float) * SZ * SZ, NULL);
 
   clEnqueueWriteBuffer(queue, a_d, CL_FALSE, 0, M * K * sizeof(float), A, 0, NULL, NULL);
   clEnqueueWriteBuffer(queue, b_d, CL_FALSE, 0, N * K * sizeof(float), B, 0, NULL, NULL);
 
   const size_t global_work_size[2] = { M, N };
-  const size_t local_work_size[2] = { 1, SZ };
+  const size_t local_work_size[2] = { SZ, SZ };
   
   // timer_start(1);
   clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_work_size, local_work_size, 0, NULL, NULL);
