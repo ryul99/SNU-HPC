@@ -18,3 +18,11 @@ __kernel void sgemm(__global float *A, __global float *B, __global float *C, int
   }
   C[n + N * m] = c;
 }
+
+__kernel void transpose(__global float *src, __global float *dst, int M, int N) {
+  // M x N => N x M
+  const int mn = get_local_size(0) * get_group_id(0) + get_local_id(0);
+  const int n = mn % N;
+  const int m = mn / N;
+  dst[m + M * n] = src[n + N * m];
+}
