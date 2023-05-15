@@ -19,48 +19,57 @@ static cl_context context;
 static cl_command_queue queue;
 static cl_program program;
 static cl_kernel kernel, kernel2;
-static cl_mem a_d, b_d, tb_d, c_d;
+static cl_mem a_d, b_d, ta_d, c_d;
 
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // float elapsed_time;
-  int SZ = 32;
-  if (N % SZ)
-    SZ = 1;
+  const int SZ = 32;
+  // if (N % SZ)
+  //   SZ = 1;
 
   // A: M x K
   // B: K x N
   // C: M x N
 
-  clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*) &a_d);
-  clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*) &tb_d);
+  clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*) &ta_d);
+  clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*) &b_d);
   clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*) &c_d);
   clSetKernelArg(kernel, 3, sizeof(int), (void*) &M);
   clSetKernelArg(kernel, 4, sizeof(int), (void*) &N);
   clSetKernelArg(kernel, 5, sizeof(int), (void*) &K);
 
-  clSetKernelArg(kernel2, 0, sizeof(cl_mem), (void*) &b_d);
-  clSetKernelArg(kernel2, 1, sizeof(cl_mem), (void*) &tb_d);
-  clSetKernelArg(kernel2, 2, sizeof(int), (void*) &K);
-  clSetKernelArg(kernel2, 3, sizeof(int), (void*) &N);
+  clSetKernelArg(kernel2, 0, sizeof(cl_mem), (void*) &a_d);
+  clSetKernelArg(kernel2, 1, sizeof(cl_mem), (void*) &ta_d);
+  clSetKernelArg(kernel2, 2, sizeof(int), (void*) &M);
+  clSetKernelArg(kernel2, 3, sizeof(int), (void*) &K);
 
   clEnqueueWriteBuffer(queue, a_d, CL_FALSE, 0, M * K * sizeof(float), A, 0, NULL, NULL);
   clEnqueueWriteBuffer(queue, b_d, CL_FALSE, 0, N * K * sizeof(float), B, 0, NULL, NULL);
 
   const size_t global_work_size[2] = { M, N };
-  const size_t local_work_size[2] = { 1, SZ };
-  const size_t global_work_size2[1] = { K * N };
-  const size_t local_work_size2[1] = { SZ };
+  const size_t local_work_size[2] = { SZ, SZ };
+  const size_t global_work_size2[2] = { K, N };
+  const size_t local_work_size2[2] = { SZ, SZ };
   
-  clEnqueueNDRangeKernel(queue, kernel2, 1, NULL, global_work_size2, local_work_size2, 0, NULL, NULL);
-  clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_work_size, local_work_size, 0, NULL, NULL);
-  // elapsed_time = timer_stop(1);
-  // printf("CAL: %f sec\n", elapsed_time);
+  // clFinish(queue);
 
-  // timer_start(2);
+  // timer_start(1);
+  clEnqueueNDRangeKernel(queue, kernel2, 2, NULL, global_work_size2, local_work_size2, 0, NULL, NULL);
+  // clFinish(queue);
+  // printf("\nTP: %f sec\n", timer_stop(1));
+
+  // timer_start(1);
+  clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_work_size, local_work_size, 0, NULL, NULL);
+  // clFinish(queue);
+  // printf("CAL: %f sec\n", timer_stop(1));
+
+  // timer_start(1);
   clEnqueueReadBuffer(queue, c_d, CL_TRUE, 0, M * N * sizeof(float), C, 0, NULL, NULL);
-  // elapsed_time = timer_stop(2);
-  // printf("READ: %f sec\n", elapsed_time);
+  // clFinish(queue);
+  // printf("READ: %f sec\n", timer_stop(1));
+
+  clFinish(queue);
 }
 
 static void print_platform_info(cl_platform_id platform) {
@@ -147,12 +156,17 @@ void matmul_initialize(int M, int N, int K) {
   // Extract kernel from compiled program
   kernel = clCreateKernel(program, "sgemm", &err);
   CHECK_ERROR(err);
+  kernel2 = clCreateKernel(program, "transpose", &err);
+  CHECK_ERROR(err);
 
   // Create GPU buffers
   a_d = clCreateBuffer(context, CL_MEM_READ_WRITE, M * K * sizeof(float), NULL,
                        &err);
   CHECK_ERROR(err);
   b_d = clCreateBuffer(context, CL_MEM_READ_WRITE, K * N * sizeof(float), NULL,
+                       &err);
+  CHECK_ERROR(err);
+  ta_d = clCreateBuffer(context, CL_MEM_READ_WRITE, K * N * sizeof(float), NULL,
                        &err);
   CHECK_ERROR(err);
   c_d = clCreateBuffer(context, CL_MEM_READ_WRITE, M * N * sizeof(float), NULL,
