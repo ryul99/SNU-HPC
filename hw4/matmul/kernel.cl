@@ -27,7 +27,6 @@ __kernel void sgemm(__global float *A, __global float *B, __global float *C, int
   __local float Asub[TS][TS];
   __local float Bsub[TS][TS];
 
-  float Areg, Breg[TS];
 
   float c = 0.0;
   int t = 0;
@@ -39,14 +38,9 @@ __kernel void sgemm(__global float *A, __global float *B, __global float *C, int
     Bsub[row][col] = B[global_col + N * tiledRow];
 
     barrier(CLK_LOCAL_MEM_FENCE);
-    
-    for(int k = 0; k < TS; k++) {
-      Breg[k] = Bsub[k][col];
-    }
 
     for(int k = 0; k < TS; k++) {
-      Areg = Asub[row][k];
-      c += Areg * Breg[k];
+      c += Asub[row][k] * Bsub[k][col];
     }
 
     barrier(CLK_LOCAL_MEM_FENCE);
