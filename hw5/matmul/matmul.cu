@@ -131,6 +131,18 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
 
   MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+ 
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    
+    CUDA_CALL(cudaMemcpyAsync(
+      d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d][0]
+    ));
+  }
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    CUDA_CALL(cudaStreamSynchronize(s_d[d][0]));
+  }
 
   MPI_Iscatter(
     &A[0], K * nodeM, MPI_FLOAT,
