@@ -23,8 +23,8 @@
 #define NUM_GPU 4
 #define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 16
-#define NUM_INNER_LOOP 16
+#define NUM_OUTER_LOOP 8
+#define NUM_INNER_LOOP 8
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
@@ -178,11 +178,15 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
-  MPI_Iscatter(
-    &A[0], K * nodeM, MPI_FLOAT,
-    h_A[0], K * nodeM, MPI_FLOAT,
-    0, MPI_COMM_WORLD, &req[0]
-  );
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    if (l < NUM_OUTER_LOOP) {
+      MPI_Iscatter(
+        &A[K * nodeM * NUM_NODE * l], K * nodeM, MPI_FLOAT,
+        h_A[l], K * nodeM, MPI_FLOAT,
+        0, MPI_COMM_WORLD, &req[l]
+      );
+    }
+  }
 
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
@@ -202,14 +206,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       printf("l: %d\n", l);
     }
     #endif
-
-    if (l < NUM_OUTER_LOOP - 1) {
-      MPI_Iscatter(
-        &A[K * nodeM * NUM_NODE * (l + 1)], K * nodeM, MPI_FLOAT,
-        h_A[(l + 1)], K * nodeM, MPI_FLOAT,
-        0, MPI_COMM_WORLD, &req[(l + 1)]
-      );
-    }
     
     MPI_Wait(&req[l], MPI_STATUSES_IGNORE);
 
