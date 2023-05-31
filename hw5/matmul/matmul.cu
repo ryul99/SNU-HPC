@@ -129,6 +129,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // M: Outer -> Node -> GPU -> Inner
 
   h_B = (float *) B;
+  memset(h_C, 0, sizeof(float) * M * N);
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
 
