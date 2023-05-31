@@ -18,7 +18,7 @@
 #define DEBUG 0
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
-#define TS 4
+#define TS 8
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 1
