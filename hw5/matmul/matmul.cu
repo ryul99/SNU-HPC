@@ -18,16 +18,17 @@
 #define DEBUG 0
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
-#define TS 16
+#define TS 4
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
-#define NUM_NODE 4
+#define NUM_NODE 1
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 4
+#define NUM_OUTER_LOOP 2
+#define NUM_INNER_LOOP 2
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
-cudaStream_t s_d[NUM_GPU];
+cudaStream_t s_d[NUM_GPU][NUM_INNER_LOOP];
 cudaEvent_t ev_d[NUM_GPU];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP];
@@ -157,38 +158,46 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       
-      const int perM = nodeM / NUM_GPU;
+      const int perM = nodeM / NUM_GPU / NUM_INNER_LOOP;
 
-      CUDA_CALL(cudaMemcpyAsync(
-        d_A[l][d], &h_A[l][d * perM * K], sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d]
-      ));
-      CUDA_CALL(cudaMemcpyAsync(
-        d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d]
-      ));
+      for (int s = 0; s < NUM_INNER_LOOP; ++s) {
+        CUDA_CALL(cudaMemcpyAsync(
+          &d_A[l][d][(s * perM) * K],
+          &h_A[l][(s * perM + d * perM * NUM_INNER_LOOP) * K],
+          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][s]
+        ));
+        CUDA_CALL(cudaMemcpyAsync(
+          d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d][s]
+        ));
 
 
-      dim3 dimBlock(TS, TS);
-      dim3 dimGrid(N / TS, perM / TS);
+        dim3 dimBlock(TS, TS);
+        dim3 dimGrid(N / TS, perM / TS);
 
-      #if DEBUG
-      if (mpi_rank == 0) {
-        printf("dimBlock: %d %d\n", TS, TS);
-        printf("dimGrid: %d %d\n", N / TS, perM / TS);
+        #if DEBUG
+        if (mpi_rank == 0) {
+          printf("dimBlock: %d %d\n", TS, TS);
+          printf("dimGrid: %d %d\n", N / TS, perM / TS);
+        }
+        #endif
+
+        matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][s]>>>(
+          &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * K], perM , N, K
+        );
+        CUDA_CALL(cudaMemcpyAsync(
+          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * K],
+          sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
+          s_d[d][s]
+        ));
       }
-      #endif
-
-      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d]>>>(d_A[l][d], d_B[d], d_C[l][d], perM, N, K);
-      CUDA_CALL(cudaMemcpyAsync(
-        &h_C[d * perM * N + l * nodeM * N], d_C[l][d],
-        sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-        s_d[d]
-      ));
     }
   }
   
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    CUDA_CALL(cudaStreamSynchronize(s_d[d]));
+    for (int i = 0; i < NUM_INNER_LOOP; ++i) {
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][i]));
+    }
     CUDA_CALL(cudaDeviceSynchronize());
   }
 
@@ -212,8 +221,10 @@ void matmul_initialize(int M, int N, int K) {
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaMalloc(&d_A[l][d], sizeof(float) * M * K / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
       CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));  
-    }  
-    CUDA_CALL(cudaStreamCreate(&s_d[d]));
+    }
+    for (int l = 0; l < NUM_INNER_LOOP; ++l) {
+      CUDA_CALL(cudaStreamCreate(&s_d[d][l]));
+    }
     CUDA_CALL(cudaEventCreate(&ev_d[d]));
   }
 }
@@ -233,8 +244,9 @@ void matmul_finalize() {
       CUDA_CALL(cudaFree(d_A[l][d]));
       CUDA_CALL(cudaFree(d_C[l][d]));
     }
-
-    CUDA_CALL(cudaStreamDestroy(s_d[d]));
+    for (int l = 0; l < NUM_INNER_LOOP; ++l) {
+      CUDA_CALL(cudaStreamDestroy(s_d[d][l]));
+    }
     CUDA_CALL(cudaEventDestroy(ev_d[d]));
   }
 }
