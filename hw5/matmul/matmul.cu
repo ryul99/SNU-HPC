@@ -21,17 +21,17 @@
 #define TS 8
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
-#define NUM_NODE 1
+#define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 2
-#define NUM_INNER_LOOP 2
+#define NUM_OUTER_LOOP 4
+#define NUM_INNER_LOOP 1
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
 cudaStream_t s_d[NUM_GPU][NUM_INNER_LOOP];
 cudaEvent_t ev_d[NUM_GPU];
 int mpi_rank, mpi_world_size;
-MPI_Request req[NUM_OUTER_LOOP][NUM_NODE];
+MPI_Request req[NUM_OUTER_LOOP];
 
 
 __global__ void transposeFineGrained(float *dst, const float *src, const int width, const int height)
@@ -125,6 +125,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // A: M x K
   // B: K x N
   // C: M x N
+  //
+  // M: Outer -> Node -> GPU -> Inner
 
   h_B = (float *) B;
 
@@ -147,7 +149,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   MPI_Iscatter(
     &A[0], K * nodeM, MPI_FLOAT,
     h_A[0], K * nodeM, MPI_FLOAT,
-    0, MPI_COMM_WORLD, &req[0][mpi_rank]
+    0, MPI_COMM_WORLD, &req[0]
   );
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -161,11 +163,11 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       MPI_Iscatter(
         &A[K * nodeM * NUM_NODE * (l + 1)], K * nodeM, MPI_FLOAT,
         h_A[(l + 1)], K * nodeM, MPI_FLOAT,
-        0, MPI_COMM_WORLD, &req[(l + 1)][mpi_rank]
+        0, MPI_COMM_WORLD, &req[(l + 1)]
       );
     }
     
-    MPI_Waitall(NUM_NODE, req[l], MPI_STATUSES_IGNORE);
+    MPI_Wait(&req[l], MPI_STATUSES_IGNORE);
 
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
@@ -210,7 +212,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     CUDA_CALL(cudaDeviceSynchronize());
   }
 
-  MPI_Gather(h_C, M * N / NUM_NODE, MPI_FLOAT, C, M * N / NUM_NODE, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Reduce(h_C, C, M * N, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 }
 
 void matmul_initialize(int M, int N, int K) {
@@ -222,7 +224,7 @@ void matmul_initialize(int M, int N, int K) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
   }
   CUDA_CALL(cudaMallocHost(&h_B, sizeof(float) * K * N));
-  CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE));
+  CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N));
 
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
