@@ -18,20 +18,29 @@
 #define DEBUG 0
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
-#define TS 8
+#define TS 32
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 8
-#define NUM_INNER_LOOP 1
+#define NUM_OUTER_LOOP 4
+#define NUM_INNER_LOOP 4
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
 cudaStream_t s_d[NUM_GPU][NUM_INNER_LOOP];
-cudaEvent_t ev_d[NUM_GPU];
+cudaEvent_t ev_d[NUM_OUTER_LOOP][NUM_GPU][NUM_INNER_LOOP];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP];
+
+
+struct matmul_args {
+  int M;
+  int N;
+  int K;
+  float *C;
+};
+
 
 
 __global__ void transposeFineGrained(float *dst, const float *src, const int width, const int height)
@@ -120,6 +129,33 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
 }
 
 
+void* gather_func(void *args) {
+  struct matmul_args *arg = (struct matmul_args *) args;
+  const int M = arg->M;
+  const int N = arg->N;
+  const int K = arg->K;
+  float *C = arg->C;
+
+  const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
+
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    // spinlock
+    #pragma omp parallel for collapse(2)
+    for (int d = 0; d < NUM_GPU; ++d) {
+      for (int i = 0; i < NUM_INNER_LOOP; ++i) {
+        while (cudaEventQuery(ev_d[l][d][i]) == cudaErrorNotReady);
+      }
+    }
+    MPI_Gather(
+      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
+      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
+      0, MPI_COMM_WORLD
+    );
+  }
+  return NULL;
+}
+
+
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // A: M x K
@@ -132,6 +168,14 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // memset(h_C, 0, sizeof(float) * M * N);
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
+
+  pthread_t gather_thread;
+  struct matmul_args *args = (struct matmul_args *) malloc(sizeof(struct matmul_args));
+  args->M = M;
+  args->N = N;
+  args->K = K;
+  args->C = C;
+  pthread_create(&gather_thread, NULL, gather_func, args);
 
   MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
@@ -201,23 +245,11 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
           sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
           s_d[d][s]
         ));
+        CUDA_CALL(cudaEventRecord(ev_d[l][d][s], s_d[d][s]));
       }
     }
   }
-  for (int d = 0; d < NUM_GPU; ++d) {
-    CUDA_CALL(cudaSetDevice(d));
-    for (int i = 0; i < NUM_INNER_LOOP; ++i) {
-      CUDA_CALL(cudaStreamSynchronize(s_d[d][i]));
-    }
-    CUDA_CALL(cudaDeviceSynchronize());
-  }
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) { 
-    MPI_Gather(
-      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
-      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
-      0, MPI_COMM_WORLD
-    );
-  }
+  pthread_join(gather_thread, NULL);
 }
 
 void matmul_initialize(int M, int N, int K) {
@@ -236,12 +268,14 @@ void matmul_initialize(int M, int N, int K) {
     CUDA_CALL(cudaMalloc(&d_B[d], sizeof(float) * K * N));
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaMalloc(&d_A[l][d], sizeof(float) * M * K / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
-      CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));  
+      CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
+      for (int i = 0; i < NUM_INNER_LOOP; ++i) {
+        CUDA_CALL(cudaEventCreate(&ev_d[l][d][i]));
+      }
     }
     for (int l = 0; l < NUM_INNER_LOOP; ++l) {
       CUDA_CALL(cudaStreamCreate(&s_d[d][l]));
     }
-    CUDA_CALL(cudaEventCreate(&ev_d[d]));
   }
 }
 
@@ -259,10 +293,12 @@ void matmul_finalize() {
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaFree(d_A[l][d]));
       CUDA_CALL(cudaFree(d_C[l][d]));
+      for (int i = 0; i < NUM_INNER_LOOP; ++i) {
+        CUDA_CALL(cudaEventDestroy(ev_d[l][d][i]));
+      }
     }
     for (int l = 0; l < NUM_INNER_LOOP; ++l) {
       CUDA_CALL(cudaStreamDestroy(s_d[d][l]));
     }
-    CUDA_CALL(cudaEventDestroy(ev_d[d]));
   }
 }
