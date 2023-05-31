@@ -197,7 +197,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
           &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * N], perM , N, K
         );
         CUDA_CALL(cudaMemcpyAsync(
-          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * N],
+          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + mpi_rank * nodeM + l * M / NUM_OUTER_LOOP) * N], &d_C[l][d][(s * perM) * N],
           sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
           s_d[d][s]
         ));
