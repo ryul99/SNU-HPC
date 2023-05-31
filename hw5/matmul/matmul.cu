@@ -18,13 +18,13 @@
 #define DEBUG 0
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
-#define TS 32
+#define TS 8
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 4
-#define NUM_INNER_LOOP 4
+#define NUM_OUTER_LOOP 16
+#define NUM_INNER_LOOP 16
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
@@ -140,7 +140,6 @@ void* gather_func(void *args) {
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     // spinlock
-    #pragma omp parallel for collapse(2)
     for (int d = 0; d < NUM_GPU; ++d) {
       for (int i = 0; i < NUM_INNER_LOOP; ++i) {
         while (cudaEventQuery(ev_d[l][d][i]) == cudaErrorNotReady);
