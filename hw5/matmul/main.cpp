@@ -4,9 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cuda_runtime.h>
 
 #include "matmul.h"
 #include "util.h"
+
+#define GPUS 4
 
 static bool print_matrix = false;
 static bool validation = false;
@@ -112,6 +115,11 @@ int main(int argc, char **argv) {
   zero_mat(C, M, N);
   for (int i = 0; i < 3; i++) {
     matmul(A, B, C, M, N, K);
+
+    for(int dev_ = 0 ; dev_ < GPUS ; ++dev_){
+      cudaSetDevice(dev_);
+      cudaDeviceSynchronize();
+    }
   }
   MPI_Barrier(MPI_COMM_WORLD);
 
@@ -130,6 +138,10 @@ int main(int argc, char **argv) {
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start(0);
     matmul(A, B, C, M, N, K);
+    for(int dev_ = 0 ; dev_ < GPUS ; ++dev_){
+      cudaSetDevice(dev_);
+      cudaDeviceSynchronize();
+    }
     MPI_Barrier(MPI_COMM_WORLD);
     double elapsed_time = timer_stop(0);
 
