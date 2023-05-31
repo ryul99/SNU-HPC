@@ -197,19 +197,28 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
           &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * N], perM , N, K
         );
         CUDA_CALL(cudaMemcpyAsync(
-          &h_C[(s * perM + d * perM * NUM_INNER_LOOP) * N], &d_C[l][d][(s * perM) * N],
+          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * N],
           sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
           s_d[d][s]
         ));
       }
     }
-    for (int d = 0; d < NUM_GPU; ++d) {
-      for (int i = 0; i < NUM_INNER_LOOP; ++i) {
-        CUDA_CALL(cudaStreamSynchronize(s_d[d][i]));
-      }
+  }
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    for (int i = 0; i < NUM_INNER_LOOP; ++i) {
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][i]));
     }
     CUDA_CALL(cudaDeviceSynchronize());
-    MPI_Gather(h_C, nodeM * N, MPI_FLOAT, &C[l * M / NUM_OUTER_LOOP * N], nodeM * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  }
+  MPI_Barrier(MPI_COMM_WORLD);
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) { 
+    MPI_Gather(
+      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
+      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
+      0, MPI_COMM_WORLD
+    );
+    MPI_Barrier(MPI_COMM_WORLD);
   }
 }
 
@@ -222,7 +231,7 @@ void matmul_initialize(int M, int N, int K) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
   }
   CUDA_CALL(cudaMallocHost(&h_B, sizeof(float) * K * N));
-  CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE / NUM_OUTER_LOOP));
+  CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE));
 
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
