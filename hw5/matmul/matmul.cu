@@ -82,8 +82,8 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   // m - row idx
   const int global_row = TS * blockIdx.y + row;
 
-  __shared__ float Asub[TS][TS];
-  __shared__ float Bsub[TS][TS];
+  __shared__ float Asub[2][TS][TS];
+  __shared__ float Bsub[2][TS][TS];
 
   #if DEBUG
   if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
@@ -96,13 +96,22 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   #endif
 
   float c = 0.0;
+
+  // load first tile
+  const int tiledRow = row;
+  const int tiledCol = col;
+  Asub[0][row][col] = A[tiledCol + K * global_row];
+  Bsub[0][row][col] = B[global_col + N * tiledRow];
+
   const int numTiles = K / TS;
   for (int t = 0; t < numTiles; ++t) {
-    const int tiledRow = TS * t + row;
-    const int tiledCol = TS * t + col;
-    Asub[row][col] = A[tiledCol + K * global_row];
-    Bsub[row][col] = B[global_col + N * tiledRow];
-
+    if (t + 1 < numTiles) {
+      const int tiledRow = TS * (t + 1) + row;
+      const int tiledCol = TS * (t + 1) + col;
+      Asub[(t + 1) % 2][row][col] = A[tiledCol + K * global_row];
+      Bsub[(t + 1) % 2][row][col] = B[global_col + N * tiledRow];
+    }
+    
     __syncthreads();
 
     #if DEBUG
@@ -119,7 +128,7 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     #endif
 
     for(int k = 0; k < TS; k++) {
-      c += Asub[row][k] * Bsub[k][col];
+      c += Asub[t % 2][row][k] * Bsub[t % 2][k][col];
     }
 
     __syncthreads();
