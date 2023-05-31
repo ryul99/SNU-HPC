@@ -31,7 +31,7 @@ float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU
 cudaStream_t s_d[NUM_GPU][NUM_INNER_LOOP];
 cudaEvent_t ev_d[NUM_GPU];
 int mpi_rank, mpi_world_size;
-MPI_Request req[NUM_OUTER_LOOP];
+MPI_Request req[NUM_OUTER_LOOP][NUM_NODE];
 
 
 __global__ void transposeFineGrained(float *dst, const float *src, const int width, const int height)
@@ -147,7 +147,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   MPI_Iscatter(
     &A[0], K * nodeM, MPI_FLOAT,
     h_A[0], K * nodeM, MPI_FLOAT,
-    0, MPI_COMM_WORLD, &req[0]
+    0, MPI_COMM_WORLD, &req[0][mpi_rank]
   );
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -161,12 +161,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       MPI_Iscatter(
         &A[K * nodeM * NUM_NODE * (l + 1)], K * nodeM, MPI_FLOAT,
         h_A[(l + 1)], K * nodeM, MPI_FLOAT,
-        0, MPI_COMM_WORLD, &req[(l + 1)]
+        0, MPI_COMM_WORLD, &req[(l + 1)][mpi_rank]
       );
     }
     
-    MPI_Wait(&req[l], MPI_STATUS_IGNORE);
-    
+    MPI_Waitall(NUM_NODE, req[l], MPI_STATUSES_IGNORE);
+
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       
@@ -177,9 +177,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
           &d_A[l][d][(s * perM) * K],
           &h_A[l][(s * perM + d * perM * NUM_INNER_LOOP) * K],
           sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][s]
-        ));
-        CUDA_CALL(cudaMemcpyAsync(
-          d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d][s]
         ));
 
 
@@ -194,10 +191,10 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         #endif
 
         matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][s]>>>(
-          &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * K], perM , N, K
+          &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * N], perM , N, K
         );
         CUDA_CALL(cudaMemcpyAsync(
-          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * K],
+          &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * N],
           sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
           s_d[d][s]
         ));
