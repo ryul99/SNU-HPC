@@ -211,14 +211,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     }
     CUDA_CALL(cudaDeviceSynchronize());
   }
-  MPI_Barrier(MPI_COMM_WORLD);
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) { 
     MPI_Gather(
       &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
       &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
       0, MPI_COMM_WORLD
     );
-    MPI_Barrier(MPI_COMM_WORLD);
   }
 }
 
