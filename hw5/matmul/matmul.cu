@@ -91,8 +91,8 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
     for (int row = 0; row < TS; ++row) {
       for (int col = 0; col < TS; ++col) {
-          Asub[row][col] = 0;
-          Bsub[row][col] = 0;
+        Asub[row][col] = 0;
+        Bsub[row][col] = 0;
       }
     }
   }
@@ -108,21 +108,6 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     
     __syncthreads();
 
-    #if DEBUG
-    if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
-      for (int r = 0; r < TS; ++r) {
-        for (int c = 0; c < TS; ++c) {
-            if (Asub[r][c] == 0) {
-              
-                printf("%d %d\n", r, c);                
-              
-              // printf("%f\n", Asub[row][col]);
-            }
-        }
-      }
-    }
-    #endif
-
     for(int k = 0; k < TS; k++) {
       c += Asub[row][k] * Bsub[k][col];
     }
@@ -131,6 +116,9 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   }
 
   C[global_col + N * global_row] = c;
+  #if DEBUG
+  printf("%d %d %f\n", global_row, global_col, c);
+  #endif
 }
 
 
