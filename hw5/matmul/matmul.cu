@@ -229,6 +229,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % STREAM_DIV]>>>(
         d_A[l][d], d_B[d], d_C[l][d], perM , N, K
       );
+      CUDA_CALL(cudaGetLastError());
       // CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][l % STREAM_DIV][1]));
 
       // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % STREAM_DIV][2], ev_buff[d][s][1]));
