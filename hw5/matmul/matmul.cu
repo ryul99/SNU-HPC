@@ -29,7 +29,7 @@
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
 cudaStream_t s_d[NUM_GPU][2][3];
-cudaEvent_t ev_buff[NUM_GPU][NUM_INNER_LOOP][2];
+// cudaEvent_t ev_buff[NUM_GPU][NUM_INNER_LOOP][2];
 cudaEvent_t ev_d[NUM_OUTER_LOOP][NUM_GPU][NUM_INNER_LOOP];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP];
@@ -230,7 +230,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
           &h_A[l][(s * perM + d * perM * NUM_INNER_LOOP) * K],
           sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][s % 2][0]
         ));
-        CUDA_CALL(cudaEventRecord(ev_buff[d][s][0], s_d[d][s % 2][0]));
+        // CUDA_CALL(cudaEventRecord(ev_buff[d][s][0], s_d[d][s % 2][0]));
 
 
         dim3 dimBlock(TS, TS);
@@ -243,13 +243,13 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         }
         #endif
 
-        CUDA_CALL(cudaStreamWaitEvent(s_d[d][s % 2][1], ev_buff[d][s][0]));
+        // CUDA_CALL(cudaStreamWaitEvent(s_d[d][s % 2][1], ev_buff[d][s][0]));
         matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][s % 2][1]>>>(
           &d_A[l][d][(s * perM) * K], d_B[d], &d_C[l][d][(s * perM) * N], perM , N, K
         );
-        CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][s % 2][1]));
+        // CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][s % 2][1]));
 
-        CUDA_CALL(cudaStreamWaitEvent(s_d[d][s % 2][2], ev_buff[d][s][1]));
+        // CUDA_CALL(cudaStreamWaitEvent(s_d[d][s % 2][2], ev_buff[d][s][1]));
         CUDA_CALL(cudaMemcpyAsync(
           &h_C[(s * perM + d * perM * NUM_INNER_LOOP + l * nodeM) * N], &d_C[l][d][(s * perM) * N],
           sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
@@ -287,11 +287,11 @@ void matmul_initialize(int M, int N, int K) {
       CUDA_CALL(cudaStreamCreate(&s_d[d][0][i]));
       CUDA_CALL(cudaStreamCreate(&s_d[d][1][i]));
     }
-    for (int s = 0; s < NUM_INNER_LOOP; ++s) {
-      for (int i = 0; i < 2; ++i) {
-        CUDA_CALL(cudaEventCreate(&ev_buff[d][s][i]));
-      }
-    }
+    // for (int s = 0; s < NUM_INNER_LOOP; ++s) {
+    //   for (int i = 0; i < 2; ++i) {
+    //     CUDA_CALL(cudaEventCreate(&ev_buff[d][s][i]));
+    //   }
+    // }
   }
 }
 
@@ -317,10 +317,10 @@ void matmul_finalize() {
       CUDA_CALL(cudaStreamDestroy(s_d[d][0][i]));
       CUDA_CALL(cudaStreamDestroy(s_d[d][1][i]));
     }
-    for (int s = 0; s < NUM_INNER_LOOP; ++s) {
-      for (int i = 0; i < 2; ++i) {
-        CUDA_CALL(cudaEventDestroy(ev_buff[d][s][i]));
-      }
-    }
+    // for (int s = 0; s < NUM_INNER_LOOP; ++s) {
+    //   for (int i = 0; i < 2; ++i) {
+    //     CUDA_CALL(cudaEventDestroy(ev_buff[d][s][i]));
+    //   }
+    // }
   }
 }
