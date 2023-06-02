@@ -24,9 +24,7 @@
 #define NUM_GPU 4
 #define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 4
-#define STREAM_DIV 1
-#define NUM_STREAM NUM_OUTER_LOOP / STREAM_DIV
+#define NUM_OUTER_LOOP 8
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
