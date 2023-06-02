@@ -187,14 +187,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
   const int perM = nodeM / NUM_GPU;
 
-  pthread_t gather_thread;
-  struct matmul_args *args = (struct matmul_args *) malloc(sizeof(struct matmul_args));
-  args->M = M;
-  args->N = N;
-  args->K = K;
-  args->C = C;
-  pthread_create(&gather_thread, NULL, gather_func, args);
-
   MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -256,6 +248,13 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l]));
     }
   }
+  pthread_t gather_thread;
+  struct matmul_args *args = (struct matmul_args *) malloc(sizeof(struct matmul_args));
+  args->M = M;
+  args->N = N;
+  args->K = K;
+  args->C = C;
+  pthread_create(&gather_thread, NULL, gather_func, args);
   pthread_join(gather_thread, NULL);
   
   // destroy event
