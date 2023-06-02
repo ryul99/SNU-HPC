@@ -154,6 +154,17 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // C: M x N
   //
   // M: Outer -> Node -> GPU
+
+  #if SUMMARY
+  if (mpi_rank == 0) {
+    const int perM = 4 * NUM_ELEM / NUM_NODE / NUM_OUTER_LOOP / NUM_GPU;
+    printf("dimBlock: %d %d\n", TS, TS);
+    printf("dimGrid: %d %d\n", NUM_ELEM / TS, perM / TS);
+    printf("perM: %d\n", perM);
+    printf("NUM_OUTER_LOOP: %d\n", NUM_OUTER_LOOP);
+  }
+  #endif
+
   
   // create event & stream
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
