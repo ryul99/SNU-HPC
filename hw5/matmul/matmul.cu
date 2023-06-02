@@ -18,7 +18,7 @@
 #define DEBUG 0
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
-#define TS 32
+#define TS 64
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 4
@@ -84,34 +84,28 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   // m - row idx
   const int global_row = TS * blockIdx.y + row;
 
-  __shared__ float Asub[2][TS][TS];
-  __shared__ float Bsub[2][TS][TS];
+  __shared__ float Asub[TS][TS];
+  __shared__ float Bsub[TS][TS];
 
   #if DEBUG
   if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
     for (int row = 0; row < TS; ++row) {
       for (int col = 0; col < TS; ++col) {
-        Asub[row][col] = 0;
+          Asub[row][col] = 0;
+          Bsub[row][col] = 0;
       }
     }
   }
   #endif
 
   float c = 0.0;
-
-  // load first tile
-  const int tiledRow = row;
-  const int tiledCol = col;
-  Asub[0][row][col] = A[tiledCol + K * global_row];
-  Bsub[0][row][col] = B[global_col + N * tiledRow];
-
   const int numTiles = K / TS;
   for (int t = 0; t < numTiles; ++t) {
     if (t + 1 < numTiles) {
-      const int tiledRow = TS * (t + 1) + row;
-      const int tiledCol = TS * (t + 1) + col;
-      Asub[(t + 1) % 2][row][col] = A[tiledCol + K * global_row];
-      Bsub[(t + 1) % 2][row][col] = B[global_col + N * tiledRow];
+      const int tiledRow = TS * t + row;
+      const int tiledCol = TS * t + col;
+      Asub[row][col] = A[tiledCol + K * global_row];
+      Bsub[row][col] = B[global_col + N * tiledRow];
     }
     
     __syncthreads();
@@ -120,17 +114,19 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
       for (int r = 0; r < TS; ++r) {
         for (int c = 0; c < TS; ++c) {
-          if (Asub[r][c] == 0) {
-            printf("%d %d\n", r, c);
-            // printf("%f\n", Asub[row][col]);
-          }
+            if (Asub[r][c] == 0) {
+              
+                printf("%d %d\n", r, c);                
+              
+              // printf("%f\n", Asub[row][col]);
+            }
         }
       }
     }
     #endif
 
     for(int k = 0; k < TS; k++) {
-      c += Asub[t % 2][row][k] * Bsub[t % 2][k][col];
+      c += Asub[row][k] * Bsub[k][col];
     }
 
     __syncthreads();
