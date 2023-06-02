@@ -217,28 +217,28 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
 
-        CUDA_CALL(cudaMemcpyAsync(
-          d_A[l][d],
-          &h_A[l][d * perM * K],
-          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % STREAM_DIV]
-        ));
-        // CUDA_CALL(cudaEventRecord(ev_buff[d][s][0], s_d[d][l % STREAM_DIV][0]));
+      CUDA_CALL(cudaMemcpyAsync(
+        d_A[l][d],
+        &h_A[l][d * perM * K],
+        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % STREAM_DIV]
+      ));
+      // CUDA_CALL(cudaEventRecord(ev_buff[d][s][0], s_d[d][l % STREAM_DIV][0]));
 
 
-        // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % STREAM_DIV][1], ev_buff[d][s][0]));
-        matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % STREAM_DIV]>>>(
-          d_A[l][d], d_B[d], d_C[l][d], perM , N, K
-        );
-        // CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][l % STREAM_DIV][1]));
+      // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % STREAM_DIV][1], ev_buff[d][s][0]));
+      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % STREAM_DIV]>>>(
+        d_A[l][d], d_B[d], d_C[l][d], perM , N, K
+      );
+      // CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][l % STREAM_DIV][1]));
 
-        // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % STREAM_DIV][2], ev_buff[d][s][1]));
-        CUDA_CALL(cudaMemcpyAsync(
-          &h_C[(d * perM + l * nodeM) * N], d_C[l][d],
-          sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-          s_d[d][l % STREAM_DIV]
-        ));
+      // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % STREAM_DIV][2], ev_buff[d][s][1]));
+      CUDA_CALL(cudaMemcpyAsync(
+        &h_C[(d * perM + l * nodeM) * N], d_C[l][d],
+        sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
+        s_d[d][l % STREAM_DIV]
+      ));
 
-        CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l % STREAM_DIV]));
+      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l % STREAM_DIV]));
     }
   }
   pthread_join(gather_thread, NULL);
