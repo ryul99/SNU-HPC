@@ -101,12 +101,10 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   float c = 0.0;
   const int numTiles = K / TS;
   for (int t = 0; t < numTiles; ++t) {
-    if (t + 1 < numTiles) {
-      const int tiledRow = TS * t + row;
-      const int tiledCol = TS * t + col;
-      Asub[row][col] = A[tiledCol + K * global_row];
-      Bsub[row][col] = B[global_col + N * tiledRow];
-    }
+    const int tiledRow = TS * t + row;
+    const int tiledCol = TS * t + col;
+    Asub[row][col] = A[tiledCol + K * global_row];
+    Bsub[row][col] = B[global_col + N * tiledRow];
     
     __syncthreads();
 
