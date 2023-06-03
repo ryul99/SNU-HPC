@@ -382,14 +382,6 @@ void matmul_initialize(int M, int N, int K) {
 
 void matmul_finalize() {
   // TODO: FILL_IN_HERE
-  #if SUMMARY
-  if (mpi_rank == 0) {
-    const int perM = 4 * NUM_ELEM / NUM_NODE / NUM_OUTER_LOOP / NUM_GPU;
-    printf("dimBlock: %d %d\n", TS, TS);
-    printf("dimGrid: %d %d\n", NUM_ELEM / TS, perM / TS);
-    printf("perM: %d\n", perM);
-  }
-  #endif
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaFreeHost(h_A[l]));
