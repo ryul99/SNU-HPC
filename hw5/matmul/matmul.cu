@@ -16,6 +16,7 @@
 
 
 #define DEBUG 0
+#define KERNEL_DEBUG 0
 #define SUMMARY 1
 #define NUM_ELEM 4096
 #define NUM_BUFFER_ELEM 32
@@ -89,7 +90,7 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   __shared__ float Asub[TS][TS];
   __shared__ float Bsub[TS][TS];
 
-  #if DEBUG
+  #if KERNEL_DEBUG
   if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
     for (int row = 0; row < TS; ++row) {
       for (int col = 0; col < TS; ++col) {
@@ -110,7 +111,7 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     
     __syncthreads();
 
-    #if DEBUG
+    #if KERNEL_DEBUG
     if (A[tiledCol + K * global_row] == 0) {
       printf("A[%d][%d] = %f\n", global_row, tiledCol, A[tiledCol + K * global_row]);
     }
@@ -138,11 +139,12 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
 
     __syncthreads();
   }
-
-  C[global_col + N * global_row] = c;
-  #if DEBUG
-  printf("%d %d %f\n", global_row, global_col, c);
+  #if KERNEL_DEBUG
+  if (c == 0) {
+    printf("C[%d][%d] = %f\n", global_row, global_col, c);
+  }
   #endif
+  C[global_col + N * global_row] = c;
 }
 
 
