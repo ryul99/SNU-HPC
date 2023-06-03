@@ -22,15 +22,17 @@
 #define TS 32
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
-#define NUM_NODE 4
-#define USE_MPI 1
+#define NUM_NODE 1
+#define USE_MPI 0
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 8
+#define NUM_OUTER_LOOP 16
+#define DIV_STREAM 8
+#define NUM_PREFETCH 4
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
-cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP];
-// cudaEvent_t ev_buff[NUM_GPU][NUM_INNER_LOOP][2];
+cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP][3];
+cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP][2];
 cudaEvent_t ev_d[NUM_OUTER_LOOP][NUM_GPU];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP];
@@ -151,6 +153,8 @@ void createEvent() {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
+      for (int i = 0; i < 2; ++i)
+        CUDA_CALL(cudaEventCreate(&ev_buff[d][l][i]));
     }
   }
 }
@@ -159,7 +163,8 @@ void createStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-      CUDA_CALL(cudaStreamCreate(&s_d[d][l]));
+      for (int i = 0; i < 3; ++i)
+        CUDA_CALL(cudaStreamCreate(&s_d[d][l][i]));
     }
   }
 }
@@ -169,6 +174,8 @@ void destroyEvent() {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
+      for (int i = 0; i < 2; ++i)
+        CUDA_CALL(cudaEventDestroy(ev_buff[d][l][i]));
     }
   }
 }
@@ -177,7 +184,8 @@ void destroyStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-      CUDA_CALL(cudaStreamDestroy(s_d[d][l]));
+      for (int i = 0; i < 3; ++i)
+        CUDA_CALL(cudaStreamDestroy(s_d[d][l][i]));
     }
   }
 }
@@ -227,12 +235,40 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     CUDA_CALL(cudaSetDevice(d));
     
     CUDA_CALL(cudaMemcpyAsync(
-      d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d][0]
+      d_B[d], h_B, sizeof(float) * K * N, cudaMemcpyHostToDevice, s_d[d][0][0]
     ));
   }
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    CUDA_CALL(cudaStreamSynchronize(s_d[d][0]));
+    CUDA_CALL(cudaStreamSynchronize(s_d[d][0][0]));
+  }
+
+
+
+  // prefetch A to d_A of l < NUM_PREFETCH for all d
+  for (int l = 0; l < NUM_PREFETCH; ++l) {
+    #if USE_MPI
+    MPI_Wait(&req[l], MPI_STATUS_IGNORE);
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaMemcpyAsync(
+        d_A[l][d],
+        &h_A[l][d * perM * K],
+        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
+      ));
+      CUDA_CALL(cudaEventRecord(ev_buff[d][l][0], s_d[d][l % DIV_STREAM][0]));
+    }
+    #else
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaMemcpyAsync(
+        d_A[l][d],
+        &A[l * nodeM * K + d * perM * K],
+        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
+      ));
+      CUDA_CALL(cudaEventRecord(ev_buff[d][l][0], s_d[d][l % DIV_STREAM][0]));
+    }
+    #endif
   }
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -243,53 +279,55 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     #endif
     
     #if USE_MPI
-    MPI_Wait(&req[l], MPI_STATUSES_IGNORE);
+    MPI_Wait(&req[(l + 1)], MPI_STATUSES_IGNORE);
     #endif
 
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
 
-      #if USE_MPI
-      CUDA_CALL(cudaMemcpyAsync(
-        d_A[l][d],
-        &h_A[l][d * perM * K],
-        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l]
-      ));
-      #else
-      CUDA_CALL(cudaMemcpyAsync(
-        d_A[l][d],
-        &A[l * nodeM * K + d * perM * K],
-        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l]
-      ));
-      #endif
-      // CUDA_CALL(cudaEventRecord(ev_buff[d][s][0], s_d[d][l % NUM_STREAM][0]));
+      if (l + NUM_PREFETCH < NUM_OUTER_LOOP) {
+        #if USE_MPI
+        CUDA_CALL(cudaMemcpyAsync(
+          d_A[(l + NUM_PREFETCH)][d],
+          &h_A[(l + NUM_PREFETCH)][d * perM * K],
+          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]
+        ));
+        #else
+        CUDA_CALL(cudaMemcpyAsync(
+          d_A[(l + NUM_PREFETCH)][d],
+          &A[(l + NUM_PREFETCH) * nodeM * K + d * perM * K],
+          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]
+        ));
+        #endif
+        CUDA_CALL(cudaEventRecord(ev_buff[d][(l + NUM_PREFETCH)][0], s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]));
+      }
 
 
       dim3 dimBlock(TS, TS);
       dim3 dimGrid(N / TS, perM / TS);
-      // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % NUM_STREAM][1], ev_buff[d][s][0]));
-      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l]>>>(
+      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
+      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % DIV_STREAM][1]>>>(
         d_A[l][d], d_B[d], d_C[l][d], perM , N, K
       );
       CUDA_CALL(cudaGetLastError());
-      // CUDA_CALL(cudaEventRecord(ev_buff[d][s][1], s_d[d][l % NUM_STREAM][1]));
+      CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l % DIV_STREAM][1]));
 
-      // CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % NUM_STREAM][2], ev_buff[d][s][1]));
+      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][2], ev_buff[d][l][1]));
       #if USE_MPI
       CUDA_CALL(cudaMemcpyAsync(
         &h_C[(d * perM + l * nodeM) * N], d_C[l][d],
         sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-        s_d[d][l]
+        s_d[d][l % DIV_STREAM][2]
       ));
       #else
       CUDA_CALL(cudaMemcpyAsync(
         &C[(d * perM + l * nodeM) * N], d_C[l][d],
         sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-        s_d[d][l]
+        s_d[d][l % DIV_STREAM][2]
       ));
       #endif
 
-      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l]));
+      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l % DIV_STREAM][2]));
     }
   }
   #if USE_MPI
