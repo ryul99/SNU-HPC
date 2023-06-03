@@ -371,14 +371,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   destroyEvent();
   destroyStream();
-
-  #if DEBUG
-  if (mpi_rank == 0) {
-    printf("dimBlock: %d %d\n", TS, TS);
-    printf("dimGrid: %d %d\n", N / TS, perM / TS);
-    printf("perM: %d\n", perM);
-  }
-  #endif
 }
 
 void matmul_initialize(int M, int N, int K) {
