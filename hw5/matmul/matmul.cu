@@ -147,9 +147,9 @@ void* gather_func(void *args) {
 
 
 void createEvent() {
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
     }
   }
@@ -158,17 +158,16 @@ void createEvent() {
 void createStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
-      CUDA_CALL(cudaStreamCreate(&s_d[d][st]));
+    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+      CUDA_CALL(cudaStreamCreate(&s_d[d][l]));
     }
   }
 }
 
 void destroyEvent() {
-  // destroy event
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
       CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
     }
   }
@@ -177,8 +176,8 @@ void destroyEvent() {
 void destroyStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
-      CUDA_CALL(cudaStreamDestroy(s_d[d][st]));
+    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+      CUDA_CALL(cudaStreamDestroy(s_d[d][l]));
     }
   }
 }
