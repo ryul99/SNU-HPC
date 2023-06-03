@@ -341,6 +341,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   pthread_join(gather_thread, NULL);
   #endif
   
+  // wait until all streams are finished
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    CUDA_CALL(cudaDeviceSynchronize());
+  }
+
   destroyEvent();
   destroyStream();
 
