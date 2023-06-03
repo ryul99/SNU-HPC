@@ -146,6 +146,44 @@ void* gather_func(void *args) {
 }
 
 
+void createEvent() {
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
+    }
+  }
+}
+
+void createStream() {
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
+      CUDA_CALL(cudaStreamCreate(&s_d[d][st]));
+    }
+  }
+}
+
+void destroyEvent() {
+  // destroy event
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
+    }
+  }
+}
+
+void destroyStream() {
+  for (int d = 0; d < NUM_GPU; ++d) {
+    CUDA_CALL(cudaSetDevice(d));
+    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
+      CUDA_CALL(cudaStreamDestroy(s_d[d][st]));
+    }
+  }
+}
+
+
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // A: M x K
@@ -164,20 +202,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   #endif
 
-  
-  // create event & stream
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
-    }
-  }
-  for (int d = 0; d < NUM_GPU; ++d) {
-    CUDA_CALL(cudaSetDevice(d));
-    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
-      CUDA_CALL(cudaStreamCreate(&s_d[d][st]));
-    }
-  } 
+  createEvent();
+  createStream();
 
   h_B = (float *) B;
   // memset(h_C, 0, sizeof(float) * M * N);
@@ -278,21 +304,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   pthread_join(gather_thread, NULL);
   #endif
   
-  // destroy event
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
-    }
-  }
-  // destroy stream
-  for (int d = 0; d < NUM_GPU; ++d) {
-    CUDA_CALL(cudaSetDevice(d));
-    for (int st = 0; st < NUM_OUTER_LOOP; ++st) {
-      CUDA_CALL(cudaStreamDestroy(s_d[d][st]));
-    }
-  }
-  
+  destroyEvent();
+  destroyStream();
+
   #if DEBUG
   if (mpi_rank == 0) {
     printf("dimBlock: %d %d\n", TS, TS);
@@ -320,12 +334,6 @@ void matmul_initialize(int M, int N, int K) {
       CUDA_CALL(cudaMalloc(&d_A[l][d], sizeof(float) * M * K / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
       CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
     }
-    //   for (int i = 0; i < 2; ++i) {
-    //     CUDA_CALL(cudaEventCreate(&ev_buff[d][i]));
-    //   }
-    //   for (int i = 0; i < 2; ++i) {
-    //     CUDA_CALL(cudaEventCreate(&ev_buff[d][i]));
-    //   }
   }
 }
 
