@@ -110,6 +110,28 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     
     __syncthreads();
 
+    #if DEBUG
+    if (A[tiledCol + K * global_row] == 0) {
+      printf("A[%d][%d] = %f\n", global_row, tiledCol, A[tiledCol + K * global_row]);
+    }
+    if (B[global_col + N * tiledRow] == 0) {
+      printf("B[%d][%d] = %f\n", tiledRow, global_col, B[global_col + N * tiledRow]);
+    }
+    if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
+      // check value is zero
+      for (int row = 0; row < TS; ++row) {
+        for (int col = 0; col < TS; ++col) {
+          if (Asub[row][col] == 0) {
+            printf("Asub[%d][%d] = %f\n", row, col, Asub[row][col]);
+          }
+          if (Bsub[row][col] == 0) {
+            printf("Bsub[%d][%d] = %f\n", row, col, Bsub[row][col]);
+          }
+        }
+      }
+    }
+    #endif
+
     for(int k = 0; k < TS; k++) {
       c += Asub[row][k] * Bsub[k][col];
     }
