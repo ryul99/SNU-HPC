@@ -283,7 +283,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   if (mpi_rank == 0) {
     const int check = NUM_NODE * NUM_OUTER_LOOP * NUM_GPU * NUM_FUSION;
     printf("dimBlock: %d %d\n", TS, TS);
-    printf("dimGrid: %d %d\n", NUM_ELEM / TS, NUM_FUSION * perM / TS);
+    printf("dimGrid: %d %d\n", N / TS, NUM_FUSION * perM / TS);
+    printf("NUM_FUSION: %d\n", NUM_FUSION);
     printf("perM: %d\n", perM);
     printf("NUM_OUTER_LOOP: %d\n", NUM_OUTER_LOOP);
     printf("M should be bigger than %d and... validation: %d\n", check, M / check);
