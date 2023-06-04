@@ -445,11 +445,12 @@ void matmul_initialize(int M, int N, int K) {
     exit(1);
   }
 
+  #if USE_MPI
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
   }
-  CUDA_CALL(cudaMallocHost(&h_B, sizeof(float) * K * N));
   CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE));
+  #endif
 
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
@@ -463,12 +464,12 @@ void matmul_initialize(int M, int N, int K) {
 
 void matmul_finalize() {
   // TODO: FILL_IN_HERE
-
+  #if USE_MPI
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaFreeHost(h_A[l]));
   }
-  CUDA_CALL(cudaFreeHost(h_B));
   CUDA_CALL(cudaFreeHost(h_C));
+  #endif
 
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
