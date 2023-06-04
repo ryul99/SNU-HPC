@@ -262,6 +262,8 @@ void loadA(int K, int perM, int d, int l) {
     sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l / NUM_FUSION][0]
   ));
   #if DEBUG
+  printf("ev_buff[%d][%d][0]\n", d_A_d_idx, l / NUM_FUSION);
+  printf("s_d[%d][%d][0]\n", d_A_d_idx, l / NUM_FUSION);
   printf("\n\n");
   #endif
   CUDA_CALL(cudaEventRecord(ev_buff[d_A_d_idx][l / NUM_FUSION][0], s_d[d_A_d_idx][l / NUM_FUSION][0]));
