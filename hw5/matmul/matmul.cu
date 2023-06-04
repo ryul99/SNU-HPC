@@ -192,14 +192,14 @@ void* gather_func(void *args) {
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
 
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+  for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
     // spinlock
     for (int d = 0; d < NUM_GPU; ++d) {
       while (cudaEventQuery(ev_d[l][d]) != cudaSuccess);
     }
     MPI_Gather(
-      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
-      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
+      &h_C[NUM_FUSION * l * nodeM * N], nodeM * N * NUM_FUSION, MPI_FLOAT,
+      &C[NUM_FUSION * l * nodeM * NUM_NODE * N], nodeM * N * NUM_FUSION, MPI_FLOAT,
       0, MPI_COMM_WORLD
     );
   }
@@ -210,7 +210,7 @@ void* gather_func(void *args) {
 void createEvent() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
       for (int i = 0; i < 2; ++i)
         CUDA_CALL(cudaEventCreate(&ev_buff[d][l][i]));
@@ -221,7 +221,7 @@ void createEvent() {
 void createStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       for (int i = 0; i < 3; ++i)
         CUDA_CALL(cudaStreamCreate(&s_d[d][l][i]));
     }
@@ -231,7 +231,7 @@ void createStream() {
 void destroyEvent() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
       for (int i = 0; i < 2; ++i)
         CUDA_CALL(cudaEventDestroy(ev_buff[d][l][i]));
@@ -242,7 +242,7 @@ void destroyEvent() {
 void destroyStream() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       for (int i = 0; i < 3; ++i)
         CUDA_CALL(cudaStreamDestroy(s_d[d][l][i]));
     }
@@ -368,13 +368,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     }
     #endif
     
-    #if USE_MPI
-    MPI_Wait(&req[(l + 1)], MPI_STATUSES_IGNORE);
-    #endif
-
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       if (l + NUM_PREFETCH < NUM_OUTER_LOOP) {
+        #if USE_MPI
+        MPI_Wait(&req[(l + NUM_PREFETCH)], MPI_STATUSES_IGNORE);
+        #endif
         loadA(K, perM, d, l + NUM_PREFETCH);
       }
 
@@ -410,8 +409,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         #if DEBUG
         printf("\n\n");
         #endif
+        CUDA_CALL(cudaEventRecord(ev_d[l / NUM_FUSION][d], s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
       }
-      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
     }
   }
   #if USE_MPI
@@ -428,7 +427,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // wait until all streams are finished
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       CUDA_CALL(cudaEventSynchronize(ev_d[l][d]));
     }
     CUDA_CALL(cudaDeviceSynchronize());
