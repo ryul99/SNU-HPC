@@ -258,12 +258,12 @@ void loadA(int K, int perM, int d, int l) {
   CUDA_CALL(cudaMemcpyAsync(
     &d_A[l / NUM_FUSION][d_A_d_idx][(d % NUM_FUSION) * perM * K],
     &h_A[l][d * perM * K],
-    sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l / NUM_FUSION % DIV_STREAM][0]
+    sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l / NUM_FUSION][0]
   ));
   #if DEBUG
   printf("\n\n");
   #endif
-  CUDA_CALL(cudaEventRecord(ev_buff[d_A_d_idx][l / NUM_FUSION][0], s_d[d_A_d_idx][l / NUM_FUSION % DIV_STREAM][0]));
+  CUDA_CALL(cudaEventRecord(ev_buff[d_A_d_idx][l / NUM_FUSION][0], s_d[d_A_d_idx][l / NUM_FUSION][0]));
 }
 
 
