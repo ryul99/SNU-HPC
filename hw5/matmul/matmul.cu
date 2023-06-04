@@ -27,12 +27,12 @@
 #define USE_MPI 0
 #define NUM_THREAD 256
 #define NUM_OUTER_LOOP 32
-#define DIV_STREAM 1
+#define DIV_STREAM 1024
 // prefetch should be bigger than 0
 #define NUM_PREFETCH 1
 // NUM_FUSION should be a divisor of NUM_OUTER_LOOP
 // and NUM_OUTER_LOOP / NUM_FUSION must be less than DIV_STREAM
-#define NUM_FUSION 4
+#define NUM_FUSION 1
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
@@ -395,7 +395,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #pragma omp parallel for num_threads(NUM_OUTER_LOOP)
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaEventSynchronize(ev_d[l / NUM_FUSION][d]));
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
+      CUDA_CALL(cudaDeviceSynchronize());
     }
     if (mpi_rank == 0) {
       for (int r = 1; r < mpi_world_size; ++r) {
@@ -410,6 +412,14 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
         0, mpi_rank + l * mpi_world_size, MPI_COMM_WORLD
       );
+    }
+  }
+  #else
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
+      CUDA_CALL(cudaDeviceSynchronize());
     }
   }
   #endif
