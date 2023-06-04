@@ -313,8 +313,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   //   }
   // }
   #endif
-
+  #if USE_MPI
   MPI_Wait(&reqB, MPI_STATUS_IGNORE);
+  #endif
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     
