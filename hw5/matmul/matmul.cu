@@ -15,7 +15,7 @@
   }
 
 
-#define DEBUG 0
+#define DEBUG 1
 #define KERNEL_DEBUG 0
 #define SUMMARY 1
 #define NUM_ELEM 4096
@@ -26,12 +26,14 @@
 #define NUM_NODE 1
 #define USE_MPI 0
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 16
-#define DIV_STREAM 8
-#define NUM_PREFETCH 4
+#define NUM_OUTER_LOOP 8
+#define DIV_STREAM 4
+#define NUM_PREFETCH 0
+// NUM_FUSION should be a divisor of NUM_OUTER_LOOP
+#define NUM_FUSION 2
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
-float *d_A[NUM_OUTER_LOOP][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP][NUM_GPU];
+float *d_A[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
 cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP][3];
 cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP][2];
 cudaEvent_t ev_d[NUM_OUTER_LOOP][NUM_GPU];
@@ -87,16 +89,43 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   // m - row idx
   const int global_row = TS * blockIdx.y + row;
 
+  // print global_col global_row
+  // #if KERNEL_DEBUG
+  // if (global_row > 2048)
+  //   printf("global_col: %d, global_row: %d\n", global_col, global_row);
+  // #endif
+
   __shared__ float Asub[TS][TS];
   __shared__ float Bsub[TS][TS];
 
   #if KERNEL_DEBUG
-  if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
+  if (row == 0 && col == 0 && global_row == 0 && global_col == 0) {
     for (int row = 0; row < TS; ++row) {
       for (int col = 0; col < TS; ++col) {
         Asub[row][col] = 0;
         Bsub[row][col] = 0;
       }
+    }
+  
+    // check A, B is zero
+    // for (int row = 0; row < M; ++row) {
+    //   for (int col = 0; col < K; ++col) {
+    //     if (A[row * K + col] == 0) {
+    //       printf("A[%d][%d] = %f\n", row, col, A[row * K + col]);
+    //     }
+    //   }
+    // }
+    // for (int row = 0; row < K; ++row) {
+    //   for (int col = 0; col < N; ++col) {
+    //     if (B[row * N + col] == 0) {
+    //       printf("B[%d][%d] = %f\n", row, col, B[row * N + col]);
+    //     }
+    //   }
+    // }
+  
+    // check bound
+    if (global_row >= M || global_col >= N) {
+      printf("global_row: %d, global_col: %d\n", global_row, global_col);
     }
   }
   #endif
@@ -108,29 +137,33 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     const int tiledCol = TS * t + col;
     Asub[row][col] = A[tiledCol + K * global_row];
     Bsub[row][col] = B[global_col + N * tiledRow];
-    
+
     __syncthreads();
 
     #if KERNEL_DEBUG
-    if (A[tiledCol + K * global_row] == 0) {
-      printf("A[%d][%d] = %f\n", global_row, tiledCol, A[tiledCol + K * global_row]);
+    // if (A[tiledCol + K * global_row] == 0) {
+    //   printf("A[%d][%d] = %f\n", global_row, tiledCol, A[tiledCol + K * global_row]);
+    //   printf("B[%d][%d] = %f\n", tiledRow, global_col, B[global_col + N * tiledRow]);
+    // }
+    if (Asub[row][col] == 0) {
+      printf("Asub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Asub[row][col], blockIdx.x * TS, blockIdx.y * TS);
     }
-    if (B[global_col + N * tiledRow] == 0) {
-      printf("B[%d][%d] = %f\n", tiledRow, global_col, B[global_col + N * tiledRow]);
+    if (Bsub[row][col] == 0) {
+      printf("Bsub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Bsub[row][col], blockIdx.x * TS, blockIdx.y * TS);
     }
-    if (row == 0 && col == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
-      // check value is zero
-      for (int row = 0; row < TS; ++row) {
-        for (int col = 0; col < TS; ++col) {
-          if (Asub[row][col] == 0) {
-            printf("Asub[%d][%d] = %f\n", row, col, Asub[row][col]);
-          }
-          if (Bsub[row][col] == 0) {
-            printf("Bsub[%d][%d] = %f\n", row, col, Bsub[row][col]);
-          }
-        }
-      }
-    }
+    // if (row == 0 && col == 0 && global_row == 0 && global_col == 0) {
+    //   // check value is zero
+    //   for (int row = 0; row < TS; ++row) {
+    //     for (int col = 0; col < TS; ++col) {
+    //       if (Asub[row][col] == 0) {
+    //         printf("Asub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Asub[row][col], blockIdx.x, blockIdx.y);
+    //       }
+    //       if (Bsub[row][col] == 0) {
+    //         printf("Bsub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Bsub[row][col], blockIdx.x, blockIdx.y);
+    //       }
+    //     }
+    //   }
+    // }
     #endif
 
     for(int k = 0; k < TS; k++) {
@@ -223,13 +256,17 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   //
   // M: Outer -> Node -> GPU
 
+  const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
+  const int perM = nodeM / NUM_GPU;
+
   #if SUMMARY
   if (mpi_rank == 0) {
-    const int perM = 4 * NUM_ELEM / NUM_NODE / NUM_OUTER_LOOP / NUM_GPU;
+    const int check = NUM_NODE * NUM_OUTER_LOOP * NUM_GPU * NUM_FUSION;
     printf("dimBlock: %d %d\n", TS, TS);
-    printf("dimGrid: %d %d\n", NUM_ELEM / TS, perM / TS);
+    printf("dimGrid: %d %d\n", NUM_ELEM / TS, NUM_FUSION * perM / TS);
     printf("perM: %d\n", perM);
     printf("NUM_OUTER_LOOP: %d\n", NUM_OUTER_LOOP);
+    printf("M should be bigger than %d and... validation: %d\n", check, M / check);
   }
   #endif
 
@@ -238,10 +275,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   h_B = (float *) B;
   // memset(h_C, 0, sizeof(float) * M * N);
-
-
-  const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
-  const int perM = nodeM / NUM_GPU;
 
   #if USE_MPI
   MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -253,6 +286,32 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       0, MPI_COMM_WORLD, &req[l]
     );
   }
+  #else
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    h_A[l] = (float *) &A[K * nodeM * NUM_NODE * l];
+  }
+  h_C = C;
+  #endif
+  #if DEBUG
+  // float *d_A_imm[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
+  // for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+  //   for (int d = 0; d < NUM_GPU; ++d) {
+  //     d_A_imm[l / NUM_FUSION][d] = (float *) malloc(sizeof(float) * perM * K * NUM_FUSION);
+  //     for (int i = 0; i < perM * K; ++i) {
+  //       if (h_A[l][d * perM * K + i] != A[K * nodeM * NUM_NODE * l + d * perM * K + i]) {
+  //         printf("h_A and A is differnt: h_A[%d][%d], A[%d][%d]\n", l, d * perM * K + i, l, d * perM * K + i);
+  //       }
+  //       memcpy(
+  //         &d_A_imm[l / NUM_FUSION][d][(l % NUM_FUSION) * perM * K],
+  //         &h_A[l][d * perM * K],
+  //         sizeof(float) * perM * K
+  //       );
+  //       if (h_A[l][d * perM * K + i] != d_A_imm[l / NUM_FUSION][d][(l % NUM_FUSION) * perM * K + i]) {
+  //         printf("h_A and d_A is differnt: h_A[%d][%d], d_A_imm[%d][%d]\n", l, d * perM * K + i, l / NUM_FUSION, (l % NUM_FUSION) * perM * K + i);
+  //       }
+  //     }
+  //   }
+  // }
   #endif
 
   for (int d = 0; d < NUM_GPU; ++d) {
@@ -273,26 +332,16 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   for (int l = 0; l < NUM_PREFETCH; ++l) {
     #if USE_MPI
     MPI_Wait(&req[l], MPI_STATUS_IGNORE);
+    #endif
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       CUDA_CALL(cudaMemcpyAsync(
-        d_A[l][d],
+        &d_A[l / NUM_FUSION][(d + l * NUM_GPU) / NUM_FUSION % NUM_GPU][(d - ((d + l * NUM_GPU) / NUM_FUSION % NUM_GPU))* perM * K],
         &h_A[l][d * perM * K],
         sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
       ));
       CUDA_CALL(cudaEventRecord(ev_buff[d][l][0], s_d[d][l % DIV_STREAM][0]));
     }
-    #else
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaMemcpyAsync(
-        d_A[l][d],
-        &A[l * nodeM * K + d * perM * K],
-        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
-      ));
-      CUDA_CALL(cudaEventRecord(ev_buff[d][l][0], s_d[d][l % DIV_STREAM][0]));
-    }
-    #endif
   }
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -308,50 +357,62 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
-
       if (l + NUM_PREFETCH < NUM_OUTER_LOOP) {
-        #if USE_MPI
+        #if DEBUG
+        printf("d_A index: %d, in array index: %d, %d\n", l / NUM_FUSION, ((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU, (((d + l * NUM_GPU) % NUM_FUSION) % NUM_OUTER_LOOP));
+        printf("h_A index: %d, in array index: %d\n", l + NUM_PREFETCH, d * perM);
+        #endif
         CUDA_CALL(cudaMemcpyAsync(
-          d_A[(l + NUM_PREFETCH)][d],
-          &h_A[(l + NUM_PREFETCH)][d * perM * K],
-          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]
+          &d_A[l / NUM_FUSION][((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU][(((d + l * NUM_GPU) % NUM_FUSION) % NUM_OUTER_LOOP) * perM * K],
+          &h_A[l][d * perM * K],
+          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
         ));
-        #else
-        CUDA_CALL(cudaMemcpyAsync(
-          d_A[(l + NUM_PREFETCH)][d],
-          &A[(l + NUM_PREFETCH) * nodeM * K + d * perM * K],
-          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]
-        ));
+        #if DEBUG
+        printf("s_d_A index: %d\n", (l + NUM_PREFETCH) % DIV_STREAM);
+        printf("ev_buff index: %d\n", (l + NUM_PREFETCH));
+        printf("\n\n");
         #endif
         CUDA_CALL(cudaEventRecord(ev_buff[d][(l + NUM_PREFETCH)][0], s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]));
       }
 
+      if ((l + 1) % NUM_FUSION == 0) {
+        #if DEBUG
+        printf("s_d_Cal index: %d\n", l / NUM_FUSION % DIV_STREAM);
+        #endif
+        dim3 dimBlock(TS, TS);
+        dim3 dimGrid(N / TS, NUM_FUSION * perM / TS);
+        for (int i = 0; i < NUM_FUSION; ++i) {
+          // #if DEBUG
+          // printf("l - i: %d\n", l - i);
+          // #endif
+          #if DEBUG
+          printf("ev_buff index: %d\n", l - i);
+          #endif
+          CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][1], ev_buff[d][l - i][0]));
+        }
 
-      dim3 dimBlock(TS, TS);
-      dim3 dimGrid(N / TS, perM / TS);
-      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
-      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % DIV_STREAM][1]>>>(
-        d_A[l][d], d_B[d], d_C[l][d], perM , N, K
-      );
-      CUDA_CALL(cudaGetLastError());
-      CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l % DIV_STREAM][1]));
+        matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l / NUM_FUSION % DIV_STREAM][1]>>>(
+          d_A[l / NUM_FUSION][d], d_B[d], d_C[l][d], perM * NUM_FUSION, N, K
+        );
+        CUDA_CALL(cudaGetLastError());
 
-      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][2], ev_buff[d][l][1]));
-      #if USE_MPI
-      CUDA_CALL(cudaMemcpyAsync(
-        &h_C[(d * perM + l * nodeM) * N], d_C[l][d],
-        sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-        s_d[d][l % DIV_STREAM][2]
-      ));
-      #else
-      CUDA_CALL(cudaMemcpyAsync(
-        &C[(d * perM + l * nodeM) * N], d_C[l][d],
-        sizeof(float) * perM * N, cudaMemcpyDeviceToHost,
-        s_d[d][l % DIV_STREAM][2]
-      ));
-      #endif
+        CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l / NUM_FUSION % DIV_STREAM][1]));
 
-      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l % DIV_STREAM][2]));
+        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][2], ev_buff[d][l][1]));
+        CUDA_CALL(cudaMemcpyAsync(
+          &h_C[((d * perM * NUM_FUSION + (l / NUM_FUSION) * NUM_FUSION * nodeM)) * N], d_C[l][d],
+          sizeof(float) * perM * N * NUM_FUSION, cudaMemcpyDeviceToHost,
+          s_d[d][l / NUM_FUSION % DIV_STREAM][2]
+        ));
+        #if DEBUG
+        printf("h_C index: %d, l / NUM_FUSION: %d\n", (d * perM * NUM_FUSION + (l / NUM_FUSION) * NUM_FUSION * nodeM), (l / NUM_FUSION) * NUM_FUSION * nodeM);
+        #endif
+
+        #if DEBUG
+        printf("\n\n");
+        #endif
+      }
+      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
     }
   }
   #if USE_MPI
@@ -368,6 +429,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // wait until all streams are finished
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
+    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+      CUDA_CALL(cudaEventSynchronize(ev_d[l][d]));
+    }
     CUDA_CALL(cudaDeviceSynchronize());
   }
 
@@ -380,6 +444,12 @@ void matmul_initialize(int M, int N, int K) {
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
 
+  // check NUM_FUSION is dividor of NUM_OUTER_LOOP
+  if (NUM_OUTER_LOOP % NUM_FUSION != 0) {
+    printf("NUM_FUSION should be dividor of NUM_OUTER_LOOP\n");
+    exit(1);
+  }
+
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
   }
@@ -389,9 +459,9 @@ void matmul_initialize(int M, int N, int K) {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     CUDA_CALL(cudaMalloc(&d_B[d], sizeof(float) * K * N));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-      CUDA_CALL(cudaMalloc(&d_A[l][d], sizeof(float) * M * K / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
-      CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
+      CUDA_CALL(cudaMalloc(&d_A[l][d], sizeof(float) * M * K  * NUM_FUSION / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
+      CUDA_CALL(cudaMalloc(&d_C[l][d], sizeof(float) * M * N  * NUM_FUSION / NUM_NODE / NUM_GPU / NUM_OUTER_LOOP));
     }
   }
 }
@@ -408,7 +478,7 @@ void matmul_finalize() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     CUDA_CALL(cudaFree(d_B[d]));
-    for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
       CUDA_CALL(cudaFree(d_A[l][d]));
       CUDA_CALL(cudaFree(d_C[l][d]));
     }
