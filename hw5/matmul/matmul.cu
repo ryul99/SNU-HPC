@@ -40,7 +40,7 @@ cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][3];
 cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][2];
 cudaEvent_t ev_d[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
 int mpi_rank, mpi_world_size;
-MPI_Request req[NUM_OUTER_LOOP];
+MPI_Request req[NUM_OUTER_LOOP], reqB;
 
 
 struct matmul_args {
@@ -183,30 +183,6 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
 }
 
 
-void* gather_func(void *args) {
-  struct matmul_args *arg = (struct matmul_args *) args;
-  const int M = arg->M;
-  const int N = arg->N;
-  const int K = arg->K;
-  float *C = arg->C;
-
-  const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
-
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    // spinlock
-    for (int d = 0; d < NUM_GPU; ++d) {
-      while (cudaEventQuery(ev_d[l / NUM_FUSION][d]) != cudaSuccess);
-    }
-    MPI_Gather(
-      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
-      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
-      0, MPI_COMM_WORLD
-    );
-  }
-  return NULL;
-}
-
-
 void createEvent() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
@@ -300,7 +276,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // memset(h_C, 0, sizeof(float) * M * N);
 
   #if USE_MPI
-  MPI_Bcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Ibcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD, &reqB);
 
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     MPI_Iscatter(
@@ -311,7 +287,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   #else
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    h_A[l] = (float *) &A[K * nodeM * NUM_NODE * l];
+    h_A[l] = (float *) &A[K * nodeM * l];
   }
   h_C = C;
   #endif
@@ -337,6 +313,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // }
   #endif
 
+  MPI_Wait(&reqB, MPI_STATUS_IGNORE);
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     
@@ -414,25 +391,27 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     }
   }
   #if USE_MPI
-  pthread_t gather_thread;
-  struct matmul_args *args = (struct matmul_args *) malloc(sizeof(struct matmul_args));
-  args->M = M;
-  args->N = N;
-  args->K = K;
-  args->C = C;
-  pthread_create(&gather_thread, NULL, gather_func, args);
-  pthread_join(gather_thread, NULL);
-  #endif
-  
-  // wait until all streams are finished
-  for (int d = 0; d < NUM_GPU; ++d) {
-    CUDA_CALL(cudaSetDevice(d));
-    for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
-      CUDA_CALL(cudaEventSynchronize(ev_d[l][d]));
+  #pragma omp parallel for num_threads(NUM_OUTER_LOOP)
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaEventSynchronize(ev_d[l / NUM_FUSION][d]));
     }
-    CUDA_CALL(cudaDeviceSynchronize());
+    if (mpi_rank == 0) {
+      for (int r = 1; r < mpi_world_size; ++r) {
+      MPI_Recv(
+        &C[(l * NUM_NODE + r) * nodeM *  N], nodeM * N, MPI_FLOAT,
+        r, r + l * mpi_world_size, MPI_COMM_WORLD, MPI_STATUS_IGNORE
+      );
+    }
+    memcpy(&C[l * NUM_NODE * nodeM * N], &h_C[l * nodeM * N], nodeM * N * sizeof(float));
+    } else {
+      MPI_Send(
+        &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
+        0, mpi_rank + l * mpi_world_size, MPI_COMM_WORLD
+      );
+    }
   }
-
+  #endif
   destroyEvent();
   destroyStream();
 }
