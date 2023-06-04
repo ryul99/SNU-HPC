@@ -227,6 +227,7 @@ void destroyStream() {
 
 
 void loadA(int K, int perM, int d, int l) {
+  CUDA_CALL(cudaSetDevice(d));
   int d_A_d_idx = ((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU;
   #if DEBUG
   printf("d_A index: %d, in array index: %d, %d\n", l / NUM_FUSION, d_A_d_idx, ((d % NUM_FUSION)));
