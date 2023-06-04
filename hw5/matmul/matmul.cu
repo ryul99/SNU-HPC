@@ -36,9 +36,9 @@
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
-cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP][3];
-cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP][2];
-cudaEvent_t ev_d[NUM_OUTER_LOOP][NUM_GPU];
+cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][3];
+cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][2];
+cudaEvent_t ev_d[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP];
 
@@ -192,14 +192,14 @@ void* gather_func(void *args) {
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
 
-  for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     // spinlock
     for (int d = 0; d < NUM_GPU; ++d) {
-      while (cudaEventQuery(ev_d[l][d]) != cudaSuccess);
+      while (cudaEventQuery(ev_d[l / NUM_FUSION][d]) != cudaSuccess);
     }
     MPI_Gather(
-      &h_C[NUM_FUSION * l * nodeM * N], nodeM * N * NUM_FUSION, MPI_FLOAT,
-      &C[NUM_FUSION * l * nodeM * NUM_NODE * N], nodeM * N * NUM_FUSION, MPI_FLOAT,
+      &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
+      &C[l * nodeM * NUM_NODE * N], nodeM * N, MPI_FLOAT,
       0, MPI_COMM_WORLD
     );
   }
