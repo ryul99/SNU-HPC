@@ -28,7 +28,8 @@
 #define NUM_THREAD 256
 #define NUM_OUTER_LOOP 8
 #define DIV_STREAM 4
-#define NUM_PREFETCH 0
+// prefetch should be bigger than 0
+#define NUM_PREFETCH 1
 // NUM_FUSION should be a divisor of NUM_OUTER_LOOP
 #define NUM_FUSION 2
 
@@ -248,6 +249,24 @@ void destroyStream() {
 }
 
 
+void loadA(int K, int perM, int d, int l) {
+  int d_A_d_idx = ((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU;
+  #if DEBUG
+  printf("d_A index: %d, in array index: %d, %d\n", l / NUM_FUSION, d_A_d_idx, ((d % NUM_FUSION)));
+  printf("h_A index: %d, in array index: %d\n", l, d);
+  #endif
+  CUDA_CALL(cudaMemcpyAsync(
+    &d_A[l / NUM_FUSION][d_A_d_idx][(d % NUM_FUSION) * perM * K],
+    &h_A[l][d * perM * K],
+    sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l / NUM_FUSION % DIV_STREAM][0]
+  ));
+  #if DEBUG
+  printf("\n\n");
+  #endif
+  CUDA_CALL(cudaEventRecord(ev_buff[d_A_d_idx][l / NUM_FUSION][0], s_d[d_A_d_idx][l / NUM_FUSION % DIV_STREAM][0]));
+}
+
+
 void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
   // A: M x K
@@ -334,13 +353,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     MPI_Wait(&req[l], MPI_STATUS_IGNORE);
     #endif
     for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaMemcpyAsync(
-        &d_A[l / NUM_FUSION][(d + l * NUM_GPU) / NUM_FUSION % NUM_GPU][(d - ((d + l * NUM_GPU) / NUM_FUSION % NUM_GPU))* perM * K],
-        &h_A[l][d * perM * K],
-        sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
-      ));
-      CUDA_CALL(cudaEventRecord(ev_buff[d][l][0], s_d[d][l % DIV_STREAM][0]));
+      loadA(K, perM, d, l);
     }
   }
 
@@ -358,21 +371,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       if (l + NUM_PREFETCH < NUM_OUTER_LOOP) {
-        #if DEBUG
-        printf("d_A index: %d, in array index: %d, %d\n", l / NUM_FUSION, ((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU, (((d + l * NUM_GPU) % NUM_FUSION) % NUM_OUTER_LOOP));
-        printf("h_A index: %d, in array index: %d\n", l + NUM_PREFETCH, d * perM);
-        #endif
-        CUDA_CALL(cudaMemcpyAsync(
-          &d_A[l / NUM_FUSION][((d + l * NUM_GPU) / NUM_FUSION) % NUM_GPU][(((d + l * NUM_GPU) % NUM_FUSION) % NUM_OUTER_LOOP) * perM * K],
-          &h_A[l][d * perM * K],
-          sizeof(float) * perM * K, cudaMemcpyHostToDevice, s_d[d][l % DIV_STREAM][0]
-        ));
-        #if DEBUG
-        printf("s_d_A index: %d\n", (l + NUM_PREFETCH) % DIV_STREAM);
-        printf("ev_buff index: %d\n", (l + NUM_PREFETCH));
-        printf("\n\n");
-        #endif
-        CUDA_CALL(cudaEventRecord(ev_buff[d][(l + NUM_PREFETCH)][0], s_d[d][(l + NUM_PREFETCH) % DIV_STREAM][0]));
+        loadA(K, perM, d, l + NUM_PREFETCH);
       }
 
       if ((l + 1) % NUM_FUSION == 0) {
@@ -381,31 +380,27 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         #endif
         dim3 dimBlock(TS, TS);
         dim3 dimGrid(N / TS, NUM_FUSION * perM / TS);
-        for (int i = 0; i < NUM_FUSION; ++i) {
-          // #if DEBUG
-          // printf("l - i: %d\n", l - i);
-          // #endif
-          #if DEBUG
-          printf("ev_buff index: %d\n", l - i);
-          #endif
-          CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][1], ev_buff[d][l - i][0]));
-        }
+        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][1], ev_buff[d][l / NUM_FUSION][0]));
 
         matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l / NUM_FUSION % DIV_STREAM][1]>>>(
-          d_A[l / NUM_FUSION][d], d_B[d], d_C[l][d], perM * NUM_FUSION, N, K
+          d_A[l / NUM_FUSION][d], d_B[d], d_C[l / NUM_FUSION][d], perM * NUM_FUSION, N, K
         );
         CUDA_CALL(cudaGetLastError());
 
-        CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l / NUM_FUSION % DIV_STREAM][1]));
+        #if DEBUG
+        printf("d_C index: %d, %d\n", l / NUM_FUSION, d);
+        #endif
 
-        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][2], ev_buff[d][l][1]));
+        CUDA_CALL(cudaEventRecord(ev_buff[d][l / NUM_FUSION][1], s_d[d][l / NUM_FUSION % DIV_STREAM][1]));
+
+        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l / NUM_FUSION % DIV_STREAM][2], ev_buff[d][l / NUM_FUSION][1]));
         CUDA_CALL(cudaMemcpyAsync(
-          &h_C[((d * perM * NUM_FUSION + (l / NUM_FUSION) * NUM_FUSION * nodeM)) * N], d_C[l][d],
+          &h_C[((d * perM + (l / NUM_FUSION) * nodeM) * NUM_FUSION) * N], d_C[l / NUM_FUSION][d],
           sizeof(float) * perM * N * NUM_FUSION, cudaMemcpyDeviceToHost,
           s_d[d][l / NUM_FUSION % DIV_STREAM][2]
         ));
         #if DEBUG
-        printf("h_C index: %d, l / NUM_FUSION: %d\n", (d * perM * NUM_FUSION + (l / NUM_FUSION) * NUM_FUSION * nodeM), (l / NUM_FUSION) * NUM_FUSION * nodeM);
+        printf("h_C index: %d\n", ((d * perM + (l / NUM_FUSION) * nodeM) * NUM_FUSION));
         #endif
 
         #if DEBUG
