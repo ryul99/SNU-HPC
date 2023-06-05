@@ -388,7 +388,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
-      CUDA_CALL(cudaDeviceSynchronize());
     }
     if (mpi_rank == 0) {
       for (int r = 1; r < mpi_world_size; ++r) {
@@ -411,7 +410,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
-      CUDA_CALL(cudaDeviceSynchronize());
     }
   }
   #endif
