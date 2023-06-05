@@ -376,9 +376,15 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   #if USE_MPI
   #if SINGLE_MPI
+  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    for (int d = 0; d < NUM_GPU; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
+    }
+  }
   MPI_Gather(
-    h_C, nodeM * NUM_OUTER_LOOP * N, MPI_FLOAT,
-    C, nodeM * NUM_OUTER_LOOP * N, MPI_FLOAT,
+    h_C, M * N / NUM_NODE, MPI_FLOAT,
+    C, M * N / NUM_NODE, MPI_FLOAT,
     0, MPI_COMM_WORLD
   );
   #else
