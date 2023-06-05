@@ -26,13 +26,9 @@
 #define NUM_NODE 1
 #define USE_MPI 0
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 32
+#define NUM_OUTER_LOOP 4
 #define DIV_STREAM 1024
-// prefetch should be bigger than 0
-// NUM_FUSION should be a divisor of NUM_OUTER_LOOP
-// and NUM_OUTER_LOOP / NUM_FUSION must be less than DIV_STREAM
 #define NUM_FUSION 1
-// #define NUM_PREFETCH 1
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
