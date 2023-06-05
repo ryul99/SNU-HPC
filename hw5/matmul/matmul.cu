@@ -346,7 +346,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         MPI_Wait(&req[l * NUM_FUSION], MPI_STATUS_IGNORE);
       #endif
       for (int i = 0; i < NUM_FUSION; ++i) {
-        loadA(K, perM, d, l);
+        loadA(K, perM, d, l * NUM_FUSION + i);
       }
       #if DEBUG
       printf("s_d_Cal index: %d\n", l % DIV_STREAM);
