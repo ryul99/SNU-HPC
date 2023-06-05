@@ -439,6 +439,12 @@ void matmul_initialize(int M, int N, int K) {
     exit(1);
   }
 
+  // print NUM GPU
+  #if SUMMARY
+  int num_gpu;
+  CUDA_CALL(cudaGetDeviceCount(&num_gpu));
+  printf("(rank: %d) NUM_GPU: %d\n", mpi_rank, num_gpu);
+  #endif
   #if USE_MPI
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
