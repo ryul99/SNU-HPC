@@ -21,8 +21,6 @@
 #define DEBUG 0
 #define KERNEL_DEBUG 0
 #define SUMMARY 0
-#define NUM_ELEM 4096
-#define NUM_BUFFER_ELEM 32
 #define TS 32
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
@@ -116,23 +114,6 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
         Bsub[row][col] = 0;
       }
     }
-  
-    // check A, B is zero
-    // for (int row = 0; row < M; ++row) {
-    //   for (int col = 0; col < K; ++col) {
-    //     if (A[row * K + col] == 0) {
-    //       printf("A[%d][%d] = %f\n", row, col, A[row * K + col]);
-    //     }
-    //   }
-    // }
-    // for (int row = 0; row < K; ++row) {
-    //   for (int col = 0; col < N; ++col) {
-    //     if (B[row * N + col] == 0) {
-    //       printf("B[%d][%d] = %f\n", row, col, B[row * N + col]);
-    //     }
-    //   }
-    // }
-  
     // check bound
     if (global_row >= M || global_col >= N) {
       printf("global_row: %d, global_col: %d\n", global_row, global_col);
@@ -151,29 +132,12 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
     __syncthreads();
 
     #if KERNEL_DEBUG
-    // if (A[tiledCol + K * global_row] == 0) {
-    //   printf("A[%d][%d] = %f\n", global_row, tiledCol, A[tiledCol + K * global_row]);
-    //   printf("B[%d][%d] = %f\n", tiledRow, global_col, B[global_col + N * tiledRow]);
-    // }
     if (Asub[row][col] == 0) {
       printf("Asub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Asub[row][col], blockIdx.x * TS, blockIdx.y * TS);
     }
     if (Bsub[row][col] == 0) {
       printf("Bsub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Bsub[row][col], blockIdx.x * TS, blockIdx.y * TS);
     }
-    // if (row == 0 && col == 0 && global_row == 0 && global_col == 0) {
-    //   // check value is zero
-    //   for (int row = 0; row < TS; ++row) {
-    //     for (int col = 0; col < TS; ++col) {
-    //       if (Asub[row][col] == 0) {
-    //         printf("Asub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Asub[row][col], blockIdx.x, blockIdx.y);
-    //       }
-    //       if (Bsub[row][col] == 0) {
-    //         printf("Bsub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Bsub[row][col], blockIdx.x, blockIdx.y);
-    //       }
-    //     }
-    //   }
-    // }
     #endif
 
     for(int k = 0; k < TS; k++) {
