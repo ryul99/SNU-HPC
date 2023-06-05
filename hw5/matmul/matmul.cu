@@ -318,8 +318,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     CUDA_CALL(cudaStreamSynchronize(s_d[d][0][0]));
   }
 
-
+  #if USE_MPI & (! SINGLE_MPI)
   #pragma omp parallel for
+  #endif
   for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
     #if DEBUG
     if (mpi_rank == 0) {
@@ -404,7 +405,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   #endif
   #else
-  #pragma omp for
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
