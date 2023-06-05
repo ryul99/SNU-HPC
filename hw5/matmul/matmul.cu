@@ -24,14 +24,13 @@
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 1
-#define USE_MPI 0
 #define NUM_THREAD 256
 #define NUM_OUTER_LOOP 4
 #define DIV_STREAM 1024
 #define NUM_FUSION 1
-#define SINGLE_MPI 1
+#define NUM_MPI 0
 
-#if USE_MPI && SINGLE_MPI
+#if NUM_MPI >= 1
 float *h_A_buff;
 #endif
 
@@ -274,12 +273,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   h_B = (float *) B;
   // memset(h_C, 0, sizeof(float) * M * N);
 
-  #if USE_MPI
+  #if NUM_MPI > 0
   MPI_Ibcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD, &reqB);
-  #if SINGLE_MPI
+  #if NUM_MPI == 1
   MPI_Iscatter(
-    A, K * nodeM * NUM_OUTER_LOOP, MPI_FLOAT,
-    h_A_buff, K * nodeM * NUM_OUTER_LOOP, MPI_FLOAT,
+    A, M * K / NUM_NODE, MPI_FLOAT,
+    h_A_buff, M * K / NUM_NODE, MPI_FLOAT,
     0, MPI_COMM_WORLD, &req[0]
   );
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
@@ -300,9 +299,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   h_C = C;
   #endif
-  #if USE_MPI
+  #if NUM_MPI > 0
   MPI_Wait(&reqB, MPI_STATUS_IGNORE);
-  #if SINGLE_MPI
+  #if NUM_MPI == 1
   MPI_Wait(&req[0], MPI_STATUS_IGNORE);
   #endif
   #endif
@@ -318,7 +317,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     CUDA_CALL(cudaStreamSynchronize(s_d[d][0][0]));
   }
 
-  #if USE_MPI & (! SINGLE_MPI)
+  #if NUM_MPI > 1
   #pragma omp parallel for
   #endif
   for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
@@ -330,13 +329,11 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
-      #if ! SINGLE_MPI
-      #if USE_MPI
+      #if NUM_MPI > 1
       if (NUM_FUSION > 1)
         MPI_Waitall(NUM_FUSION, &req[l * NUM_FUSION], MPI_STATUSES_IGNORE);
       else
         MPI_Wait(&req[l * NUM_FUSION], MPI_STATUS_IGNORE);
-      #endif
       #endif
       for (int i = 0; i < NUM_FUSION; ++i) {
         loadA(K, perM, d, l * NUM_FUSION + i);
@@ -374,8 +371,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       #endif
     }
   }
-  #if USE_MPI
-  #if SINGLE_MPI
+  #if NUM_MPI > 0
+  #if NUM_MPI == 1
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
@@ -439,14 +436,14 @@ void matmul_initialize(int M, int N, int K) {
   CUDA_CALL(cudaGetDeviceCount(&num_gpu));
   printf("(rank: %d) NUM_GPU: %d\n", mpi_rank, num_gpu);
   #endif
-  #if USE_MPI
-  #if ! SINGLE_MPI
+  #if NUM_MPI > 0
+  #if ! (NUM_MPI == 1)
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
   }
   #endif
   CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE));
-  #if SINGLE_MPI
+  #if NUM_MPI == 1
   CUDA_CALL(cudaMallocHost(&h_A_buff, sizeof(float) * M * K / NUM_NODE));
   #endif
   #endif
@@ -463,8 +460,8 @@ void matmul_initialize(int M, int N, int K) {
 
 void matmul_finalize() {
   // TODO: FILL_IN_HERE
-  #if USE_MPI
-  #if ! SINGLE_MPI
+  #if NUM_MPI > 0
+  #if ! (NUM_MPI == 1)
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     CUDA_CALL(cudaFreeHost(h_A[l]));
   }
