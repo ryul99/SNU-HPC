@@ -420,16 +420,28 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   destroyStream();
 }
 
+void warn_values() {
+  // check NUM_NODE, NUM_GPU, NUM_FUSION, NUM_OUTER_LOOP with each rank
+  if (NUM_NODE != mpi_world_size)
+    printf("[WARN] (rank: %d) NODE => set: %d / current active: %d\n", mpi_rank, NUM_NODE, mpi_world_size);
+  int num_gpu;
+  CUDA_CALL(cudaGetDeviceCount(&num_gpu));
+  if (NUM_GPU != num_gpu)
+    printf("[WARN] (rank: %d) GPU => set: %d / current active: %d\n", mpi_rank, NUM_GPU, num_gpu);
+  if (NUM_OUTER_LOOP % NUM_FUSION != 0 | NUM_OUTER_LOOP < NUM_FUSION)
+    printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_FUSION: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_FUSION);
+  if (NUM_OUTER_LOOP % DIV_STREAM != 0)
+    printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, DIV_STREAM: %d\n", mpi_rank, NUM_OUTER_LOOP, DIV_STREAM);
+  if (NUM_OUTER_LOOP % (NUM_MPI * NUM_NODE) != 0 | NUM_OUTER_LOOP < NUM_MPI * NUM_NODE)
+    printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_MPI: %d, NUM_NODE: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_MPI, NUM_NODE);
+}
+
 void matmul_initialize(int M, int N, int K) {
   // TODO: FILL_IN_HERE
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
 
-  // check NUM_FUSION is dividor of NUM_OUTER_LOOP
-  if (NUM_OUTER_LOOP % NUM_FUSION != 0) {
-    printf("NUM_FUSION should be dividor of NUM_OUTER_LOOP\n");
-    exit(1);
-  }
+  warn_values();
 
   // print NUM GPU
   #if SUMMARY
