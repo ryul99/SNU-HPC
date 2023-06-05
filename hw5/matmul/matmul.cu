@@ -288,27 +288,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   }
   h_C = C;
   #endif
-  #if DEBUG
-  // float *d_A_imm[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
-  // for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-  //   for (int d = 0; d < NUM_GPU; ++d) {
-  //     d_A_imm[l / NUM_FUSION][d] = (float *) malloc(sizeof(float) * perM * K * NUM_FUSION);
-  //     for (int i = 0; i < perM * K; ++i) {
-  //       if (h_A[l][d * perM * K + i] != A[K * nodeM * NUM_NODE * l + d * perM * K + i]) {
-  //         printf("h_A and A is differnt: h_A[%d][%d], A[%d][%d]\n", l, d * perM * K + i, l, d * perM * K + i);
-  //       }
-  //       memcpy(
-  //         &d_A_imm[l / NUM_FUSION][d][(l % NUM_FUSION) * perM * K],
-  //         &h_A[l][d * perM * K],
-  //         sizeof(float) * perM * K
-  //       );
-  //       if (h_A[l][d * perM * K + i] != d_A_imm[l / NUM_FUSION][d][(l % NUM_FUSION) * perM * K + i]) {
-  //         printf("h_A and d_A is differnt: h_A[%d][%d], d_A_imm[%d][%d]\n", l, d * perM * K + i, l / NUM_FUSION, (l % NUM_FUSION) * perM * K + i);
-  //       }
-  //     }
-  //   }
-  // }
-  #endif
   #if USE_MPI
   MPI_Wait(&reqB, MPI_STATUS_IGNORE);
   #endif
