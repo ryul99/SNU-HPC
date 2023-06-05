@@ -356,14 +356,14 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       }
     }
   }
+  #if NUM_MPI > 0
+  #if NUM_MPI == 1
   for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       CUDA_CALL(cudaStreamSynchronize(s_d[d][l % DIV_STREAM][2]));
     }
   }
-  #if NUM_MPI > 0
-  #if NUM_MPI == 1
   MPI_Gather(
     h_C, M * N / NUM_NODE, MPI_FLOAT,
     C, M * N / NUM_NODE, MPI_FLOAT,
@@ -372,6 +372,12 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #else
   #pragma omp parallel for
   for (int l = 0; l < NUM_MPI; ++l) {
+    for (int ll = l * MPI_TS; ll < MIN(NUM_OUTER_LOOP, (l + 1) * MPI_TS); ++ll) {
+      for (int d = 0; d < NUM_GPU; ++d) {
+        CUDA_CALL(cudaSetDevice(d));
+        CUDA_CALL(cudaStreamSynchronize(s_d[d][l % DIV_STREAM][2]));
+      }
+    }
     if (mpi_rank == 0) {
       for (int r = 1; r < mpi_world_size; ++r) {
         MPI_Recv(
