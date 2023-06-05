@@ -33,8 +33,11 @@
 #define NUM_FUSION 1
 #define NUM_MPI 2
 // NUM_MPI should be devidor of NUM_OUTER_LOOP
-
-#define MPI_TS ((NUM_MPI) ? (NUM_OUTER_LOOP / NUM_MPI) : 1)
+#if NUM_MPI >= 1
+  #define MPI_TS (NUM_OUTER_LOOP / NUM_MPI)
+#else
+  #define MPI_TS 1
+#endif
 
 #if NUM_MPI >= 1
 float *h_A_buff[NUM_MPI];
@@ -260,7 +263,9 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
   const int perM = nodeM / NUM_GPU;
+  #if NUM_MPI > 1
   int perNodeM = M / NUM_NODE / NUM_MPI;
+  #endif
 
   #if SUMMARY
   if (mpi_rank == 0) {
@@ -331,19 +336,21 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #pragma omp parallel for
   #endif
   for (int t = 0; t < NUM_OUTER_LOOP / NUM_FUSION; t += MPI_TS) {
-    #if NUM_MPI > 0 && (MPI_TS) >= NUM_FUSION
+    #if NUM_MPI
+    #if (MPI_TS) >= NUM_FUSION
     MPI_Wait(
       &req[t / ((MPI_TS) / NUM_FUSION)], MPI_STATUS_IGNORE
     );
     #endif
-    #if NUM_MPI > 0
-    for (int l = t; l < MIN(t + MPI_TS, NUM_OUTER_LOOP / NUM_FUSION); ++l) {
     #endif
-      #if NUM_MPI > 0 && (MPI_TS) < NUM_FUSION
+    for (int l = t; l < MIN(t + MPI_TS, NUM_OUTER_LOOP / NUM_FUSION); ++l) {
+      #if NUM_MPI > 0
+      #if (MPI_TS) < NUM_FUSION
       MPI_Waitall(
         NUM_FUSION / (MPI_TS),
         &req[l * NUM_FUSION / (MPI_TS)], MPI_STATUSES_IGNORE
       );
+      #endif
       #endif
 
       for (int d = 0; d < NUM_GPU; ++d) {
@@ -439,10 +446,12 @@ void warn_values() {
     printf("[WARN] (rank: %d) GPU => set: %d / current active: %d\n", mpi_rank, NUM_GPU, num_gpu);
   if (NUM_OUTER_LOOP % NUM_FUSION != 0 | NUM_OUTER_LOOP < NUM_FUSION)
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_FUSION: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_FUSION);
+  #if NUM_MPI
   if (NUM_OUTER_LOOP % (NUM_MPI * NUM_NODE) != 0 | NUM_OUTER_LOOP < NUM_MPI * NUM_NODE)
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_MPI: %d, NUM_NODE: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_MPI, NUM_NODE);
   if (! (NUM_FUSION % MPI_TS == 0 || MPI_TS % NUM_FUSION == 0))
     printf("[WARN] (rank: %d) NUM_FUSION: %d, MPI_TS: %d\n", mpi_rank, NUM_FUSION, MPI_TS);
+  #endif
 }
 
 void matmul_initialize(int M, int N, int K) {
