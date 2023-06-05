@@ -330,10 +330,11 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
       #if NUM_MPI > 1
-      if (NUM_FUSION > 1)
-        MPI_Waitall(NUM_FUSION, &req[l * NUM_FUSION], MPI_STATUSES_IGNORE);
-      else
-        MPI_Wait(&req[l * NUM_FUSION], MPI_STATUS_IGNORE);
+      #if NUM_FUSION > 1
+      MPI_Waitall(NUM_FUSION, &req[l * NUM_FUSION], MPI_STATUSES_IGNORE);
+      #else
+      MPI_Wait(&req[l * NUM_FUSION], MPI_STATUS_IGNORE);
+      #endif
       #endif
       for (int i = 0; i < NUM_FUSION; ++i) {
         loadA(K, perM, d, l * NUM_FUSION + i);
