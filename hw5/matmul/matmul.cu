@@ -432,6 +432,8 @@ void warn_values() {
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_FUSION: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_FUSION);
   if (NUM_OUTER_LOOP % (NUM_MPI * NUM_NODE) != 0 | NUM_OUTER_LOOP < NUM_MPI * NUM_NODE)
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_MPI: %d, NUM_NODE: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_MPI, NUM_NODE);
+  if (! (NUM_FUSION % MPI_TS == 0 || MPI_TS % NUM_FUSION == 0))
+    printf("[WARN] (rank: %d) NUM_FUSION: %d, MPI_TS: %d\n", mpi_rank, NUM_FUSION, MPI_TS);
 }
 
 void matmul_initialize(int M, int N, int K) {
