@@ -39,7 +39,6 @@ float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
 float *d_A[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU], *d_B[NUM_GPU], *d_C[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
 cudaStream_t s_d[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][3];
 cudaEvent_t ev_buff[NUM_GPU][NUM_OUTER_LOOP / NUM_FUSION][2];
-cudaEvent_t ev_d[NUM_OUTER_LOOP / NUM_FUSION][NUM_GPU];
 int mpi_rank, mpi_world_size;
 MPI_Request req[NUM_OUTER_LOOP], reqB;
 
@@ -188,7 +187,6 @@ void createEvent() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
-      CUDA_CALL(cudaEventCreate(&ev_d[l][d]));
       for (int i = 0; i < 2; ++i)
         CUDA_CALL(cudaEventCreate(&ev_buff[d][l][i]));
     }
@@ -209,7 +207,6 @@ void destroyEvent() {
   for (int d = 0; d < NUM_GPU; ++d) {
     CUDA_CALL(cudaSetDevice(d));
     for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
-      CUDA_CALL(cudaEventDestroy(ev_d[l][d]));
       for (int i = 0; i < 2; ++i)
         CUDA_CALL(cudaEventDestroy(ev_buff[d][l][i]));
     }
@@ -374,7 +371,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       #if DEBUG
       printf("\n\n");
       #endif
-      CUDA_CALL(cudaEventRecord(ev_d[l][d], s_d[d][l % DIV_STREAM][2]));
     }
   }
   #if USE_MPI
