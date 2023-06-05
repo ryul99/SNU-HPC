@@ -15,6 +15,9 @@
   }
 
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+
 #define DEBUG 0
 #define KERNEL_DEBUG 0
 #define SUMMARY 0
@@ -23,15 +26,18 @@
 #define TS 32
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
-#define NUM_NODE 1
+#define NUM_NODE 4
 #define NUM_THREAD 256
-#define NUM_OUTER_LOOP 4
+#define NUM_OUTER_LOOP 32
 #define DIV_STREAM 1024
 #define NUM_FUSION 1
-#define NUM_MPI 0
+#define NUM_MPI 2
+// NUM_MPI should be devidor of NUM_OUTER_LOOP
+
+#define MPI_TS ((NUM_MPI) ? (NUM_OUTER_LOOP / NUM_MPI) : 1)
 
 #if NUM_MPI >= 1
-float *h_A_buff;
+float *h_A_buff[NUM_MPI];
 #endif
 
 float *h_A[NUM_OUTER_LOOP], *h_B, *h_C;
@@ -254,6 +260,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
 
   const int nodeM = M / NUM_NODE / NUM_OUTER_LOOP;
   const int perM = nodeM / NUM_GPU;
+  int perNodeM = M / NUM_NODE / NUM_MPI;
 
   #if SUMMARY
   if (mpi_rank == 0) {
@@ -276,19 +283,22 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #if NUM_MPI > 0
   MPI_Ibcast(h_B, K * N, MPI_FLOAT, 0, MPI_COMM_WORLD, &reqB);
   #if NUM_MPI == 1
-  MPI_Iscatter(
-    A, M * K / NUM_NODE, MPI_FLOAT,
-    h_A_buff, M * K / NUM_NODE, MPI_FLOAT,
-    0, MPI_COMM_WORLD, &req[0]
-  );
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
     h_A[l] = (float *) &h_A_buff[K * nodeM * l];
   }
+  MPI_Iscatter(
+    A, M * K / NUM_NODE, MPI_FLOAT,
+    h_A_buff[0], M * K / NUM_NODE, MPI_FLOAT,
+    0, MPI_COMM_WORLD, &req[0]
+  );
   #else
   for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
+    h_A[l] = (float *) &h_A_buff[l / MPI_TS][K * nodeM * (l % MPI_TS)];
+  }
+  for (int l = 0; l < NUM_MPI; ++l) {
     MPI_Iscatter(
-      &A[K * nodeM * NUM_NODE * l], K * nodeM, MPI_FLOAT,
-      h_A[l], K * nodeM, MPI_FLOAT,
+      &A[K * perNodeM * NUM_NODE * l], K * perNodeM, MPI_FLOAT,
+      h_A_buff[l], K * perNodeM, MPI_FLOAT,
       0, MPI_COMM_WORLD, &req[l]
     );
   }
@@ -320,66 +330,69 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #if NUM_MPI > 0
   #pragma omp parallel for
   #endif
-  for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
-    #if DEBUG
-    if (mpi_rank == 0) {
-      printf("l: %d\n", l);
-    }
+  for (int t = 0; t < NUM_OUTER_LOOP / NUM_FUSION; t += MPI_TS) {
+    #if NUM_MPI > 0 && (MPI_TS) >= NUM_FUSION
+    MPI_Wait(
+      &req[t / ((MPI_TS) / NUM_FUSION)], MPI_STATUS_IGNORE
+    );
     #endif
+    #if NUM_MPI > 0
+    for (int l = t; l < MIN(t + MPI_TS, NUM_OUTER_LOOP / NUM_FUSION); ++l) {
+    #endif
+      #if NUM_MPI > 0 && (MPI_TS) < NUM_FUSION
+      MPI_Waitall(
+        NUM_FUSION / (MPI_TS),
+        &req[l * NUM_FUSION / (MPI_TS)], MPI_STATUSES_IGNORE
+      );
+      #endif
 
+      for (int d = 0; d < NUM_GPU; ++d) {
+        CUDA_CALL(cudaSetDevice(d));
+        for (int i = 0; i < NUM_FUSION; ++i) {
+          loadA(K, perM, d, l * NUM_FUSION + i);
+        }
+        #if DEBUG
+        printf("s_d_Cal index: %d\n", l % DIV_STREAM);
+        #endif
+        dim3 dimBlock(TS, TS);
+        dim3 dimGrid(N / TS, NUM_FUSION * perM / TS);
+        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
+
+        matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % DIV_STREAM][1]>>>(
+          d_A[l][d], d_B[d], d_C[l][d], perM * NUM_FUSION, N, K
+        );
+        CUDA_CALL(cudaGetLastError());
+
+        #if DEBUG
+        printf("d_C index: %d, %d\n", l, d);
+        #endif
+
+        CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l % DIV_STREAM][1]));
+
+        CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][2], ev_buff[d][l][1]));
+        CUDA_CALL(cudaMemcpyAsync(
+          &h_C[((d * perM + (l) * nodeM) * NUM_FUSION) * N], d_C[l][d],
+          sizeof(float) * perM * N * NUM_FUSION, cudaMemcpyDeviceToHost,
+          s_d[d][l % DIV_STREAM][2]
+        ));
+        #if DEBUG
+        printf("h_C index: %d\n", ((d * perM + (l) * nodeM) * NUM_FUSION));
+        #endif
+
+        #if DEBUG
+        printf("\n\n");
+        #endif
+      }
+    }
+  }
+  for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
     for (int d = 0; d < NUM_GPU; ++d) {
       CUDA_CALL(cudaSetDevice(d));
-      #if NUM_MPI > 0
-      #if NUM_FUSION > 1
-      MPI_Waitall(NUM_FUSION, &req[l * NUM_FUSION], MPI_STATUSES_IGNORE);
-      #else
-      MPI_Wait(&req[l * NUM_FUSION], MPI_STATUS_IGNORE);
-      #endif
-      #endif
-      for (int i = 0; i < NUM_FUSION; ++i) {
-        loadA(K, perM, d, l * NUM_FUSION + i);
-      }
-      #if DEBUG
-      printf("s_d_Cal index: %d\n", l % DIV_STREAM);
-      #endif
-      dim3 dimBlock(TS, TS);
-      dim3 dimGrid(N / TS, NUM_FUSION * perM / TS);
-      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
-
-      matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % DIV_STREAM][1]>>>(
-        d_A[l][d], d_B[d], d_C[l][d], perM * NUM_FUSION, N, K
-      );
-      CUDA_CALL(cudaGetLastError());
-
-      #if DEBUG
-      printf("d_C index: %d, %d\n", l, d);
-      #endif
-
-      CUDA_CALL(cudaEventRecord(ev_buff[d][l][1], s_d[d][l % DIV_STREAM][1]));
-
-      CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][2], ev_buff[d][l][1]));
-      CUDA_CALL(cudaMemcpyAsync(
-        &h_C[((d * perM + (l) * nodeM) * NUM_FUSION) * N], d_C[l][d],
-        sizeof(float) * perM * N * NUM_FUSION, cudaMemcpyDeviceToHost,
-        s_d[d][l % DIV_STREAM][2]
-      ));
-      #if DEBUG
-      printf("h_C index: %d\n", ((d * perM + (l) * nodeM) * NUM_FUSION));
-      #endif
-
-      #if DEBUG
-      printf("\n\n");
-      #endif
+      CUDA_CALL(cudaStreamSynchronize(s_d[d][l % DIV_STREAM][2]));
     }
   }
   #if NUM_MPI > 0
   #if NUM_MPI == 1
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
-    }
-  }
   MPI_Gather(
     h_C, M * N / NUM_NODE, MPI_FLOAT,
     C, M * N / NUM_NODE, MPI_FLOAT,
@@ -387,25 +400,21 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   );
   #else
   #pragma omp parallel for
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaStreamSynchronize(s_d[d][l / NUM_FUSION % DIV_STREAM][2]));
-    }
+  for (int l = 0; l < NUM_MPI; ++l) {
     if (mpi_rank == 0) {
       for (int r = 1; r < mpi_world_size; ++r) {
-      MPI_Recv(
-        &C[(l * NUM_NODE + r) * nodeM *  N], nodeM * N, MPI_FLOAT,
-        r, r + l * mpi_world_size, MPI_COMM_WORLD, MPI_STATUS_IGNORE
-      );
-    }
-    memcpy(&C[l * NUM_NODE * nodeM * N], &h_C[l * nodeM * N], nodeM * N * sizeof(float));
+        MPI_Recv(
+          &C[(l * NUM_NODE + r) * perNodeM *  N], perNodeM * N, MPI_FLOAT,
+          r, r + l * mpi_world_size, MPI_COMM_WORLD, MPI_STATUS_IGNORE
+        );
+      }
+      memcpy(&C[l * NUM_NODE * perNodeM * N], &h_C[l * perNodeM * N], perNodeM * N * sizeof(float));
     } else {
       MPI_Send(
-        &h_C[l * nodeM * N], nodeM * N, MPI_FLOAT,
+        &h_C[l * perNodeM * N], perNodeM * N, MPI_FLOAT,
         0, mpi_rank + l * mpi_world_size, MPI_COMM_WORLD
       );
-    }
+    } 
   }
   #endif
   #else
@@ -450,15 +459,9 @@ void matmul_initialize(int M, int N, int K) {
   printf("(rank: %d) NUM_GPU: %d\n", mpi_rank, num_gpu);
   #endif
   #if NUM_MPI > 0
-  #if ! (NUM_MPI == 1)
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    CUDA_CALL(cudaMallocHost(&h_A[l], sizeof(float) * M * K / NUM_NODE / NUM_OUTER_LOOP));
-  }
-  #endif
   CUDA_CALL(cudaMallocHost(&h_C, sizeof(float) * M * N / NUM_NODE));
-  #if NUM_MPI == 1
-  CUDA_CALL(cudaMallocHost(&h_A_buff, sizeof(float) * M * K / NUM_NODE));
-  #endif
+  for (int i = 0; i < NUM_MPI; ++i)
+    CUDA_CALL(cudaMallocHost(&h_A_buff[i], sizeof(float) * M * K / NUM_NODE / NUM_MPI));
   #endif
 
   for (int d = 0; d < NUM_GPU; ++d) {
@@ -474,12 +477,9 @@ void matmul_initialize(int M, int N, int K) {
 void matmul_finalize() {
   // TODO: FILL_IN_HERE
   #if NUM_MPI > 0
-  #if ! (NUM_MPI == 1)
-  for (int l = 0; l < NUM_OUTER_LOOP; ++l) {
-    CUDA_CALL(cudaFreeHost(h_A[l]));
-  }
-  #endif
   CUDA_CALL(cudaFreeHost(h_C));
+  for (int i = 0; i < NUM_MPI; ++i)
+    CUDA_CALL(cudaFreeHost(h_A_buff[i]));
   #endif
 
   for (int d = 0; d < NUM_GPU; ++d) {
