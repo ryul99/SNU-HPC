@@ -430,8 +430,6 @@ void warn_values() {
     printf("[WARN] (rank: %d) GPU => set: %d / current active: %d\n", mpi_rank, NUM_GPU, num_gpu);
   if (NUM_OUTER_LOOP % NUM_FUSION != 0 | NUM_OUTER_LOOP < NUM_FUSION)
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_FUSION: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_FUSION);
-  if (NUM_OUTER_LOOP % DIV_STREAM != 0)
-    printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, DIV_STREAM: %d\n", mpi_rank, NUM_OUTER_LOOP, DIV_STREAM);
   if (NUM_OUTER_LOOP % (NUM_MPI * NUM_NODE) != 0 | NUM_OUTER_LOOP < NUM_MPI * NUM_NODE)
     printf("[WARN] (rank: %d) NUM_OUTER_LOOP: %d, NUM_MPI: %d, NUM_NODE: %d\n", mpi_rank, NUM_OUTER_LOOP, NUM_MPI, NUM_NODE);
 }
