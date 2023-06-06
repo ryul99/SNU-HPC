@@ -25,7 +25,6 @@
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 4
-#define NUM_THREAD 256
 #define NUM_OUTER_LOOP 32
 #define DIV_STREAM 1024
 #define NUM_FUSION 1
