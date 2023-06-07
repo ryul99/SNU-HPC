@@ -25,7 +25,7 @@
 #define BLOCK_ROWS 4
 #define NUM_GPU 4
 #define NUM_NODE 4
-#define NUM_OUTER_LOOP 32
+#define NUM_OUTER_LOOP 16
 #define DIV_STREAM 1024
 #define NUM_FUSION 1
 #define NUM_MPI 2
@@ -355,12 +355,6 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
       }
     }
   }
-  for (int l = 0; l < NUM_OUTER_LOOP / NUM_FUSION; ++l) {
-    for (int d = 0; d < NUM_GPU; ++d) {
-      CUDA_CALL(cudaSetDevice(d));
-      CUDA_CALL(cudaStreamSynchronize(s_d[d][l % DIV_STREAM][2]));
-    }
-  }
   #if NUM_MPI > 0
   #if NUM_MPI == 1
   MPI_Gather(
@@ -371,6 +365,13 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #else
   #pragma omp parallel for
   for (int l = 0; l < NUM_MPI; ++l) {
+    for (int ll = l * MPI_TS; ll < MIN(NUM_OUTER_LOOP, (l + 1) * MPI_TS); ++ll) {
+      int lll = ll / NUM_FUSION;
+      for (int d = 0; d < NUM_GPU; ++d) {
+        CUDA_CALL(cudaSetDevice(d));
+        CUDA_CALL(cudaStreamSynchronize(s_d[d][lll % DIV_STREAM][2]));
+      }
+    }
     if (mpi_rank == 0) {
       for (int r = 1; r < mpi_world_size; ++r) {
         MPI_Recv(
