@@ -22,7 +22,6 @@
 #define KERNEL_DEBUG 0
 #define SUMMARY 0
 
-#define TS 32
 #define BM 128
 #define BK 8
 #define BN 128
@@ -216,8 +215,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
   #if SUMMARY
   if (mpi_rank == 0) {
     const int check = NUM_NODE * NUM_OUTER_LOOP * NUM_GPU * NUM_FUSION;
-    printf("dimBlock: %d %d\n", TS, TS);
-    printf("dimGrid: %d %d\n", N / TS, NUM_FUSION * perM / TS);
+    printf("dimBlock: %d\n", BM * BN / (TM * TN));
+    printf("dimGrid: %d %d\n", N / BN, NUM_FUSION * perM / BM);
     printf("NUM_FUSION: %d\n", NUM_FUSION);
     printf("perM: %d\n", perM);
     printf("NUM_OUTER_LOOP: %d\n", NUM_OUTER_LOOP);
