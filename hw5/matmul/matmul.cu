@@ -21,14 +21,19 @@
 #define DEBUG 0
 #define KERNEL_DEBUG 0
 #define SUMMARY 0
+
 #define TS 32
-#define BLOCK_ROWS 4
+#define BM 64
+#define BK 8
+#define BN 64
+#define TM 8
+
 #define NUM_GPU 4
-#define NUM_NODE 4
-#define NUM_OUTER_LOOP 16
+#define NUM_NODE 1
+#define NUM_OUTER_LOOP 4
 #define DIV_STREAM 1024
 #define NUM_FUSION 1
-#define NUM_MPI 2
+#define NUM_MPI 0
 // NUM_MPI should be devidor of NUM_OUTER_LOOP
 #if NUM_MPI >= 1
   #define MPI_TS (NUM_OUTER_LOOP / NUM_MPI)
@@ -57,6 +62,7 @@ struct matmul_args {
 
 __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
+  // ref: https://siboehm.com/articles/22/CUDA-MMM
 
   // A: M x K
   // B: K x N
@@ -65,37 +71,47 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   // Ap: K x M
   // Bp: N x K
 
-  // 0 ... col_size
-  const int col = threadIdx.x;
-  // 0 ... row_size
-  const int row = threadIdx.y;
-  // const int col_size = blockDim.x;
-  // const int row_size = blockDim.y;
-  // n - col idx
-  const int global_col = TS * blockIdx.x + col;
-  // m - row idx
-  const int global_row = TS * blockIdx.y + row;
+  const int cRow = blockIdx.y;
+  const int cCol = blockIdx.x;
+  const int threadRow = threadIdx.x / BN;
+  const int threadCol = threadIdx.x % BN;
 
-  __shared__ float Asub[TS][TS];
-  __shared__ float Bsub[TS][TS];
+  __shared__ float Asub[BM][BK];
+  __shared__ float Bsub[BK][BN];
 
-  float c = 0.0;
-  const int numTiles = K / TS;
-  for (int t = 0; t < numTiles; ++t) {
-    const int tiledRow = TS * t + row;
-    const int tiledCol = TS * t + col;
-    Asub[row][col] = A[tiledCol + K * global_row];
-    Bsub[row][col] = B[global_col + N * tiledRow];
+  A += cRow * BM * K;
+  B += cCol * BN;
+  C += cRow * BM * N + cCol * BN;
+
+  const uint innerColA = threadIdx.x % BK;
+  const uint innerRowA = threadIdx.x / BK;
+  const uint innerColB = threadIdx.x % BN;
+  const uint innerRowB = threadIdx.x / BN;
+
+  float res[TS] = {0.0};
+
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    Asub[innerRowA][innerColA] = A[innerRowA * K + innerColA];
+    Bsub[innerRowB][innerColB] = B[innerRowB * N + innerColB];
 
     __syncthreads();
 
-    for(int k = 0; k < TS; k++) {
-      c += Asub[row][k] * Bsub[k][col];
+    A += BK;
+    B += BK * N;
+
+    for(int dotIdx = 0; dotIdx < BK; dotIdx++) {
+      float tmp = Bsub[dotIdx][threadCol];
+      for (int  resIdx = 0; resIdx < TM; ++resIdx) {
+        res[resIdx] += Asub[threadRow * TM + resIdx][dotIdx] * tmp;
+      }
     }
 
     __syncthreads();
   }
-  C[global_col + N * global_row] = c;
+  
+  for (int resIdx = 0; resIdx < TM; ++resIdx) {
+    C[(threadRow * TM + resIdx) * N + threadCol] = res[resIdx];
+  }
 }
 
 
@@ -269,8 +285,8 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         #if DEBUG
         printf("s_d_Cal index: %d\n", l % DIV_STREAM);
         #endif
-        dim3 dimBlock(TS, TS);
-        dim3 dimGrid(N / TS, NUM_FUSION * perM / TS);
+        dim3 dimBlock(BM * BN / TM);
+        dim3 dimGrid(N / BN, NUM_FUSION * perM / BM);
         CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
 
         matmul_cal<<<dimGrid, dimBlock, 0, s_d[d][l % DIV_STREAM][1]>>>(
