@@ -96,29 +96,8 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   // m - row idx
   const int global_row = TS * blockIdx.y + row;
 
-  // print global_col global_row
-  // #if KERNEL_DEBUG
-  // if (global_row > 2048)
-  //   printf("global_col: %d, global_row: %d\n", global_col, global_row);
-  // #endif
-
   __shared__ float Asub[TS][TS];
   __shared__ float Bsub[TS][TS];
-
-  #if KERNEL_DEBUG
-  if (row == 0 && col == 0 && global_row == 0 && global_col == 0) {
-    for (int row = 0; row < TS; ++row) {
-      for (int col = 0; col < TS; ++col) {
-        Asub[row][col] = 0;
-        Bsub[row][col] = 0;
-      }
-    }
-    // check bound
-    if (global_row >= M || global_col >= N) {
-      printf("global_row: %d, global_col: %d\n", global_row, global_col);
-    }
-  }
-  #endif
 
   float c = 0.0;
   const int numTiles = K / TS;
@@ -130,26 +109,12 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
 
     __syncthreads();
 
-    #if KERNEL_DEBUG
-    if (Asub[row][col] == 0) {
-      printf("Asub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Asub[row][col], blockIdx.x * TS, blockIdx.y * TS);
-    }
-    if (Bsub[row][col] == 0) {
-      printf("Bsub[%d][%d] = %f and Grid Idx: [%d][%d]\n", row, col, Bsub[row][col], blockIdx.x * TS, blockIdx.y * TS);
-    }
-    #endif
-
     for(int k = 0; k < TS; k++) {
       c += Asub[row][k] * Bsub[k][col];
     }
 
     __syncthreads();
   }
-  #if KERNEL_DEBUG
-  if (c == 0) {
-    printf("C[%d][%d] = %f\n", global_row, global_col, c);
-  }
-  #endif
   C[global_col + N * global_row] = c;
 }
 
