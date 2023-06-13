@@ -2,6 +2,7 @@
 #include "util.h"
 #include <mpi.h>
 #include <math.h>
+#include <cuda_runtime.h>
 
 #define CUDA_CALL(f)                                                           \
   {                                                                            \
@@ -14,6 +15,14 @@
   }
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define BM 128
+#define BK 8
+#define BN 128
+#define TM 8
+#define TN 8
+
+__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K);
 
 static int SOS_token = 0;
 static int EOS_token = 1;
@@ -755,5 +764,80 @@ void finalize_translator(){
     delete decoder_ht;
     delete decoder_out;
     delete decoder_logsoftmax;
+  }
+}
+
+__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K) {
+  // TODO: FILL_IN_HERE
+  // ref: https://siboehm.com/articles/22/CUDA-MMM
+
+  // A: M x K
+  // B: K x N
+  // C: M x N
+
+  // Ap: K x M
+  // Bp: N x K
+
+  const int cRow = blockIdx.y;
+  const int cCol = blockIdx.x;
+  const int threadRow = threadIdx.x / (BN / TN);
+  const int threadCol = threadIdx.x % (BN / TN);
+
+  __shared__ float Asub[BM][BK];
+  __shared__ float Bsub[BK][BN];
+
+  A += cRow * BM * K;
+  B += cCol * BN;
+  C += cRow * BM * N + cCol * BN;
+
+  const int innerColA = threadIdx.x % BK;
+  const int innerRowA = threadIdx.x / BK;
+
+  const int innerColB = threadIdx.x % BN;
+  const int innerRowB = threadIdx.x / BN;
+
+  const int strideA = (BM * BN) / (TM * TN) / BK;
+  const int strideB = (BM * BN) / (TM * TN) / BN;
+
+    float res[TM * TN] = {0.0};
+
+  float regM[TM] = {0.0};
+  float regN[TN] = {0.0};
+
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    for (int loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
+      Asub[innerRowA + loadOffset][innerColA] = A[(innerRowA + loadOffset) * K + innerColA];
+    }
+    for (int loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
+      Bsub[innerRowB + loadOffset][innerColB] = B[(innerRowB + loadOffset) * N + innerColB];
+    }
+
+    __syncthreads();
+
+    A += BK;
+    B += BK * N;
+
+    for(int dotIdx = 0; dotIdx < BK; ++dotIdx) {
+      for (int i = 0; i < TM; ++i) {
+        regM[i] = Asub[threadRow * TM + i][dotIdx];
+      }
+      for (int i = 0; i < TN; ++i) {
+        regN[i] = Bsub[dotIdx][threadCol * TN + i];
+      }
+
+      for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
+        for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
+          res[resIdxM * TN + resIdxN] += regM[resIdxM] * regN[resIdxN];
+        }
+      }
+    }
+
+    __syncthreads();
+  }
+  
+  for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
+    for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
+      C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] = res[resIdxM * TN + resIdxN];
+    }
   }
 }
