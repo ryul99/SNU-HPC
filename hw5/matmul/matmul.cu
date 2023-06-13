@@ -55,26 +55,6 @@ struct matmul_args {
   float *C;
 };
 
-
-
-__global__ void transposeFineGrained(float *dst, const float *src, const int width, const int height)
-{
-  // ref: https://developer.download.nvidia.com/assets/cuda/files/MatrixTranspose.pdf
-  // x: TS, y: BLOCK_ROWS
-  __shared__ float block[TS][TS + 1];
-  int xIndex = blockIdx.x * TS + threadIdx.x;
-  int yIndex = blockIdx.y * TS + threadIdx.y;
-  int index = xIndex + (yIndex) * width;
-
-  for (int i=0; i < TS; i += BLOCK_ROWS) {
-    block[threadIdx.y+i][threadIdx.x] = src[index+i*width];
-  }
-  __syncthreads();
-  for (int i=0; i < TS; i += BLOCK_ROWS) {
-    dst[index+i*height] = block[threadIdx.x][threadIdx.y+i];
-  }
-}
-
 __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K) {
   // TODO: FILL_IN_HERE
 
