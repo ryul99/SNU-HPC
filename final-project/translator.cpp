@@ -3,6 +3,18 @@
 #include <mpi.h>
 #include <math.h>
 
+#define CUDA_CALL(f)                                                           \
+  {                                                                            \
+    cudaError_t err = (f);                                                     \
+    if (err != cudaSuccess) {                                                  \
+      fprintf(stderr, "CUDA error at [%s:%d] %d %s\n", __FILE__, __LINE__,     \
+              err, cudaGetErrorString(err));                                   \
+      exit(1);                                                                 \
+    }                                                                          \
+  }
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static int SOS_token = 0;
 static int EOS_token = 1;
 static int HIDDEN_SIZE = 256;
