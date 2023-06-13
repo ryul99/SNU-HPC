@@ -23,10 +23,11 @@
 #define SUMMARY 0
 
 #define TS 32
-#define BM 64
+#define BM 128
 #define BK 8
-#define BN 64
+#define BN 128
 #define TM 8
+#define TN 8
 
 #define NUM_GPU 4
 #define NUM_NODE 1
@@ -73,8 +74,8 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
 
   const int cRow = blockIdx.y;
   const int cCol = blockIdx.x;
-  const int threadRow = threadIdx.x / BN;
-  const int threadCol = threadIdx.x % BN;
+  const int threadRow = threadIdx.x / (BN / TN);
+  const int threadCol = threadIdx.x % (BN / TN);
 
   __shared__ float Asub[BM][BK];
   __shared__ float Bsub[BK][BN];
@@ -83,34 +84,55 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
   B += cCol * BN;
   C += cRow * BM * N + cCol * BN;
 
-  const uint innerColA = threadIdx.x % BK;
-  const uint innerRowA = threadIdx.x / BK;
-  const uint innerColB = threadIdx.x % BN;
-  const uint innerRowB = threadIdx.x / BN;
+  const int innerColA = threadIdx.x % BK;
+  const int innerRowA = threadIdx.x / BK;
 
-  float res[TS] = {0.0};
+  const int innerColB = threadIdx.x % BN;
+  const int innerRowB = threadIdx.x / BN;
+
+  const int strideA = (BM * BN) / (TM * TN) / BK;
+  const int strideB = (BM * BN) / (TM * TN) / BN;
+
+    float res[TM * TN] = {0.0};
+
+  float regM[TM] = {0.0};
+  float regN[TN] = {0.0};
 
   for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
-    Asub[innerRowA][innerColA] = A[innerRowA * K + innerColA];
-    Bsub[innerRowB][innerColB] = B[innerRowB * N + innerColB];
+    for (int loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
+      Asub[innerRowA + loadOffset][innerColA] = A[(innerRowA + loadOffset) * K + innerColA];
+    }
+    for (int loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
+      Bsub[innerRowB + loadOffset][innerColB] = B[(innerRowB + loadOffset) * N + innerColB];
+    }
 
     __syncthreads();
 
     A += BK;
     B += BK * N;
 
-    for(int dotIdx = 0; dotIdx < BK; dotIdx++) {
-      float tmp = Bsub[dotIdx][threadCol];
-      for (int  resIdx = 0; resIdx < TM; ++resIdx) {
-        res[resIdx] += Asub[threadRow * TM + resIdx][dotIdx] * tmp;
+    for(int dotIdx = 0; dotIdx < BK; ++dotIdx) {
+      for (int i = 0; i < TM; ++i) {
+        regM[i] = Asub[threadRow * TM + i][dotIdx];
+      }
+      for (int i = 0; i < TN; ++i) {
+        regN[i] = Bsub[dotIdx][threadCol * TN + i];
+      }
+
+      for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
+        for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
+          res[resIdxM * TN + resIdxN] += regM[resIdxM] * regN[resIdxN];
+        }
       }
     }
 
     __syncthreads();
   }
   
-  for (int resIdx = 0; resIdx < TM; ++resIdx) {
-    C[(threadRow * TM + resIdx) * N + threadCol] = res[resIdx];
+  for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
+    for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
+      C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] = res[resIdxM * TN + resIdxN];
+    }
   }
 }
 
@@ -285,7 +307,7 @@ void matmul(const float *A, const float *B, float *C, int M, int N, int K) {
         #if DEBUG
         printf("s_d_Cal index: %d\n", l % DIV_STREAM);
         #endif
-        dim3 dimBlock(BM * BN / TM);
+        dim3 dimBlock(BM * BN / (TM * TN));
         dim3 dimGrid(N / BN, NUM_FUSION * perM / BM);
         CUDA_CALL(cudaStreamWaitEvent(s_d[d][l % DIV_STREAM][1], ev_buff[d][l][0]));
 
