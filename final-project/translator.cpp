@@ -124,7 +124,9 @@ void embedding(int ei, Tensor *weight, Tensor *output);
 void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output);
 void matvecFMA(Tensor *input1, Tensor *weight, Tensor *input2, Tensor *output);
 void elemwise_sigmoid(Tensor *input, Tensor *output);
+void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output);
 void elemwise_tanh(Tensor *input, Tensor *output);
+void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output);
 void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output);
 void elemwise_oneminus(Tensor *input, Tensor *output);
 void copy_encoder_outputs(Tensor *input, Tensor *output, int i);
@@ -171,21 +173,18 @@ void translator(Tensor *input, Tensor *output, int N){
         // r_t
         matvecFMA(encoder_embedded, eW_ir, eb_ir, encoder_rtmp2);
         matvecFMA(encoder_hidden, eW_hr, eb_hr, encoder_rtmp4);
-        elemwise_add(encoder_rtmp2, encoder_rtmp4, encoder_rtmp5);
-        elemwise_sigmoid(encoder_rtmp5, encoder_rt); 
+        elemwise_add_sigmoid(encoder_rtmp2, encoder_rtmp4, encoder_rt);
         
         // z_t
         matvecFMA(encoder_embedded, eW_iz, eb_iz, encoder_ztmp2);
         matvecFMA(encoder_hidden, eW_hz, eb_hz, encoder_ztmp4);
-        elemwise_add(encoder_ztmp2, encoder_ztmp4, encoder_ztmp5);
-        elemwise_sigmoid(encoder_ztmp5, encoder_zt); 
+        elemwise_add_sigmoid(encoder_ztmp2, encoder_ztmp4, encoder_zt);
        
         // n_t
         matvecFMA(encoder_embedded, eW_in, eb_in, encoder_ntmp2);
         matvecFMA(encoder_hidden, eW_hn, eb_hn, encoder_ntmp4);
         elemwise_mult(encoder_rt, encoder_ntmp4, encoder_ntmp5);
-        elemwise_add(encoder_ntmp2, encoder_ntmp5, encoder_ntmp6);
-        elemwise_tanh(encoder_ntmp6, encoder_nt); 
+        elemwise_add_tanh(encoder_ntmp2, encoder_ntmp5, encoder_nt);
         
         // h_t
         elemwise_oneminus(encoder_zt, encoder_htmp1);
@@ -220,21 +219,18 @@ void translator(Tensor *input, Tensor *output, int N){
         // r_t
         matvecFMA(decoder_relu, dW_ir, db_ir, decoder_rtmp2);
         matvecFMA(decoder_hidden, dW_hr, db_hr, decoder_rtmp4);
-        elemwise_add(decoder_rtmp2, decoder_rtmp4, decoder_rtmp5);
-        elemwise_sigmoid(decoder_rtmp5, decoder_rt); 
+        elemwise_add_sigmoid(decoder_rtmp2, decoder_rtmp4, decoder_rt);
         
         // z_t
         matvecFMA(decoder_relu, dW_iz, db_iz, decoder_ztmp2);
         matvecFMA(decoder_hidden, dW_hz, db_hz, decoder_ztmp4);
-        elemwise_add(decoder_ztmp2, decoder_ztmp4, decoder_ztmp5);
-        elemwise_sigmoid(decoder_ztmp5, decoder_zt); 
+        elemwise_add_sigmoid(decoder_ztmp2, decoder_ztmp4, decoder_zt);
         
         // n_t
         matvecFMA(decoder_relu, dW_in, db_in, decoder_ntmp2);
         matvecFMA(decoder_hidden, dW_hn, db_hn, decoder_ntmp4);
         elemwise_mult(decoder_rt, decoder_ntmp4, decoder_ntmp5);
-        elemwise_add(decoder_ntmp2, decoder_ntmp5, decoder_ntmp6);
-        elemwise_tanh(decoder_ntmp6, decoder_nt); 
+        elemwise_add_tanh(decoder_ntmp2, decoder_ntmp5, decoder_nt);
         
         // h_t
         elemwise_oneminus(decoder_zt, decoder_htmp1);
@@ -309,6 +305,38 @@ void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output){
   
   for (int n=0; n<N_; ++n) {
     output->buf[n] = input1->buf[n] + input2->buf[n];
+  }
+}
+
+/*
+ * elemwise_add_sigmoid
+ * @brief : Element-by-element addition of tensors and sigmoid
+ *        output = sigmoid(input1 + input2)
+ * @param [in1] input1
+ * @param [in2] input2
+ * @param [out] output
+ */
+void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output){
+  int N_ = input1->num_elem();
+  
+  for (int n=0; n<N_; ++n) {
+    output->buf[n] = 1.0 / (1.0 + exp(-(input1->buf[n] + input2->buf[n])));
+  }
+}
+
+/*
+ * elemwise_add_tanh
+ * @brief : Element-by-element addition of tensors and tanh
+ *       output = tanh(input1 + input2)
+ * @param [in1] input1
+ * @param [in2] input2
+ * @param [out] output
+ */
+void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output){
+  int N_ = input1->num_elem();
+  
+  for (int n=0; n<N_; ++n) {
+    output->buf[n] = tanhf(input1->buf[n] + input2->buf[n]);
   }
 }
 
