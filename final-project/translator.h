@@ -46,8 +46,11 @@ struct Tensor {
   ~Tensor();
   int num_elem();
   void fill_zeros();
+  void load();
+  void store();
 
   float *buf = nullptr;
+  float *d_buf = nullptr;
   int ndim = 0;
   int shape[4];
 };

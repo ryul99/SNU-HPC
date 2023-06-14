@@ -45,6 +45,7 @@ Tensor::Tensor(std::vector<int> shape_) {
   }
   int N_ = num_elem();
   buf = (float *)calloc(N_, sizeof(float));
+  CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
 }
 
 Tensor::Tensor(std::vector<int> shape_, float *buf_) {
@@ -54,6 +55,7 @@ Tensor::Tensor(std::vector<int> shape_, float *buf_) {
   }
   int N_ = num_elem();
   buf = (float *) malloc(N_ * sizeof(float));
+  CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
   for (int n = 0; n < N_; ++n) {
     buf[n] = buf_[n]; 
   }
@@ -61,6 +63,7 @@ Tensor::Tensor(std::vector<int> shape_, float *buf_) {
 
 Tensor::~Tensor() {
   if (buf != nullptr) free(buf);
+  if (d_buf != nullptr) CUDA_CALL(cudaFree(d_buf));
 }
 
 int Tensor::num_elem() {
@@ -77,6 +80,17 @@ void Tensor::fill_zeros() {
     buf[n] = 0.0; 
   }
 }
+
+void Tensor::load() {
+  int N_ = num_elem();
+  CUDA_CALL(cudaMemcpy(d_buf, buf, N_ * sizeof(float), cudaMemcpyHostToDevice));
+}
+
+void Tensor::store() {
+  int N_ = num_elem();
+  CUDA_CALL(cudaMemcpy(buf, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
+}
+
 
 // Parameters
 Tensor *eW_emb;
