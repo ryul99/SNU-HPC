@@ -45,6 +45,7 @@ Tensor::Tensor(std::vector<int> shape_) {
   }
   int N_ = num_elem();
   buf = (float *)calloc(N_, sizeof(float));
+  CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
 }
 
 Tensor::Tensor(std::vector<int> shape_, float *buf_) {
@@ -54,6 +55,7 @@ Tensor::Tensor(std::vector<int> shape_, float *buf_) {
   }
   int N_ = num_elem();
   buf = (float *) malloc(N_ * sizeof(float));
+  CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
   memcpy(buf, buf_, N_ * sizeof(float));
 }
 
@@ -77,7 +79,6 @@ void Tensor::fill_zeros() {
 
 void Tensor::load() {
   int N_ = num_elem();
-  if (d_buf == nullptr) CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
   CUDA_CALL(cudaMemcpy(d_buf, buf, N_ * sizeof(float), cudaMemcpyHostToDevice));
 }
 
