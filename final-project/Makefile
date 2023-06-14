@@ -14,6 +14,9 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS) $(LDLIBS)
 
+translator.o: translator.cpp
+	$(CUX) $(CUDA_CFLAGS) -c -o $@ -x cu $^
+
 %.o: %.cpp
 	$(CXX) $(CFLAGS) -c -o $@ $^
 
