@@ -313,7 +313,7 @@ void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output){
 }
 
 /*
- * mat-vec multiplication and elementwise addition
+ * matvecFMA
  * @brief : Perform a matrix-vector product of the matrix and the vector and add a vector
  *         to the result
  * @param [in1] input1  : a vector of size [K_]
