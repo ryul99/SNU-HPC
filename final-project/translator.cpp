@@ -75,6 +75,7 @@ int Tensor::num_elem() {
 void Tensor::fill_zeros() {
   int N_ = num_elem();
   memset(buf, 0, N_ * sizeof(float));
+  CUDA_CALL(cudaMemset(d_buf, 0, N_ * sizeof(float)));
 }
 
 void Tensor::load() {
