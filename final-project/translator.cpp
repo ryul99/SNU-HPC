@@ -123,7 +123,7 @@ Tensor *decoder_out, *decoder_logsoftmax;
 void embedding(int ei, Tensor *weight, Tensor *output);
 // void matvec(Tensor *input, Tensor *weight, Tensor *output);
 void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output);
-void matvecFMA(Tensor *input1, Tensor *weight, Tensor *input2, Tensor *output);
+void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output);
 void elemwise_sigmoid(Tensor *input, Tensor *output);
 void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output);
 void elemwise_tanh(Tensor *input, Tensor *output);
@@ -132,7 +132,6 @@ void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output);
 void elemwise_oneminus(Tensor *input, Tensor *output);
 void copy_encoder_outputs(Tensor *input, Tensor *output, int i);
 void concat(Tensor *input1, Tensor *input2, Tensor *output);
-void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output);
 void softmax(Tensor *input, Tensor *output);
 void bmm(Tensor *input, Tensor *weight, Tensor *output);
 void relu(Tensor *input, Tensor *output);
@@ -172,18 +171,18 @@ void translator(Tensor *input, Tensor *output, int N){
         
         // GRU
         // r_t
-        matvecFMA(encoder_embedded, eW_ir, eb_ir, encoder_rtmp2);
-        matvecFMA(encoder_hidden, eW_hr, eb_hr, encoder_rtmp4);
+        linear(encoder_embedded, eW_ir, eb_ir, encoder_rtmp2);
+        linear(encoder_hidden, eW_hr, eb_hr, encoder_rtmp4);
         elemwise_add_sigmoid(encoder_rtmp2, encoder_rtmp4, encoder_rt);
         
         // z_t
-        matvecFMA(encoder_embedded, eW_iz, eb_iz, encoder_ztmp2);
-        matvecFMA(encoder_hidden, eW_hz, eb_hz, encoder_ztmp4);
+        linear(encoder_embedded, eW_iz, eb_iz, encoder_ztmp2);
+        linear(encoder_hidden, eW_hz, eb_hz, encoder_ztmp4);
         elemwise_add_sigmoid(encoder_ztmp2, encoder_ztmp4, encoder_zt);
        
         // n_t
-        matvecFMA(encoder_embedded, eW_in, eb_in, encoder_ntmp2);
-        matvecFMA(encoder_hidden, eW_hn, eb_hn, encoder_ntmp4);
+        linear(encoder_embedded, eW_in, eb_in, encoder_ntmp2);
+        linear(encoder_hidden, eW_hn, eb_hn, encoder_ntmp4);
         elemwise_mult(encoder_rt, encoder_ntmp4, encoder_ntmp5);
         elemwise_add_tanh(encoder_ntmp2, encoder_ntmp5, encoder_nt);
         
@@ -218,18 +217,18 @@ void translator(Tensor *input, Tensor *output, int N){
       
         // GRU
         // r_t
-        matvecFMA(decoder_relu, dW_ir, db_ir, decoder_rtmp2);
-        matvecFMA(decoder_hidden, dW_hr, db_hr, decoder_rtmp4);
+        linear(decoder_relu, dW_ir, db_ir, decoder_rtmp2);
+        linear(decoder_hidden, dW_hr, db_hr, decoder_rtmp4);
         elemwise_add_sigmoid(decoder_rtmp2, decoder_rtmp4, decoder_rt);
         
         // z_t
-        matvecFMA(decoder_relu, dW_iz, db_iz, decoder_ztmp2);
-        matvecFMA(decoder_hidden, dW_hz, db_hz, decoder_ztmp4);
+        linear(decoder_relu, dW_iz, db_iz, decoder_ztmp2);
+        linear(decoder_hidden, dW_hz, db_hz, decoder_ztmp4);
         elemwise_add_sigmoid(decoder_ztmp2, decoder_ztmp4, decoder_zt);
         
         // n_t
-        matvecFMA(decoder_relu, dW_in, db_in, decoder_ntmp2);
-        matvecFMA(decoder_hidden, dW_hn, db_hn, decoder_ntmp4);
+        linear(decoder_relu, dW_in, db_in, decoder_ntmp2);
+        linear(decoder_hidden, dW_hn, db_hn, decoder_ntmp4);
         elemwise_mult(decoder_rt, decoder_ntmp4, decoder_ntmp5);
         elemwise_add_tanh(decoder_ntmp2, decoder_ntmp5, decoder_nt);
         
@@ -342,16 +341,16 @@ void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output){
 }
 
 /*
- * matvecFMA
+ * linear
  * @brief : Perform a matrix-vector product of the matrix and the vector and add a vector
  *         to the result
- * @param [in1] input1  : a vector of size [K_]
+ * @param [in1] input  : a vector of size [K_]
  * @param [in2] weight  : a matrix of size [M_ x K_]
- * @param [in3] input2  : a vector of size [M_]
+ * @param [in3] bias  : a vector of size [M_]
  * @param [out] output  : a vector of size [M_]
- * @return : output = weight * input1 + input2
+ * @return : output = weight * input + bias
  */
-void matvecFMA(Tensor *input1, Tensor *weight, Tensor *input2, Tensor *output) {
+void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output) {
   int M_ = weight->shape[0];
   int K_ = weight->shape[1];
   
@@ -359,10 +358,10 @@ void matvecFMA(Tensor *input1, Tensor *weight, Tensor *input2, Tensor *output) {
     float c = 0.0;
     for (int k=0; k<K_; ++k) {
       float w = weight->buf[m*K_+k];
-      float i1 = input1->buf[k];
+      float i1 = input->buf[k];
       c += w*i1;
     }
-    output->buf[m] = c + input2->buf[m];
+    output->buf[m] = c + bias->buf[m];
   }
 }
 
@@ -459,28 +458,6 @@ void concat(Tensor *input1, Tensor *input2, Tensor *output) {
   
   memcpy(output->buf, input1->buf, N_ * sizeof(float));
   memcpy(&output->buf[N_], input2->buf, N_ * sizeof(float));
-}
-
-/*
- * linear
- * @brief : Apply a linear transformation to the incoming data: linear(x) = x A + b.
- *
- * @param [in1] input  : a vector of size [K_]
- * @param [in2] weight : a matrix of size [N_ x K_]
- * @param [in3] bias   : a vector of size [N_]
- * @param [out] output : a vector of size [N_]
- */
-void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output) {
-  int K_ = weight->shape[1];
-  int N_ = weight->shape[0];
-  
-  for (int n=0; n<N_; ++n) {
-    float c = bias->buf[n];
-    for (int k=0; k<K_; ++k) {
-      c += input->buf[k] * weight->buf[n*K_ + k]; 
-    }
-    output->buf[n] = c;
-  }
 }
 
 /*
