@@ -56,9 +56,7 @@ Tensor::Tensor(std::vector<int> shape_, float *buf_) {
   int N_ = num_elem();
   buf = (float *) malloc(N_ * sizeof(float));
   CUDA_CALL(cudaMalloc(&d_buf, N_ * sizeof(float)));
-  for (int n = 0; n < N_; ++n) {
-    buf[n] = buf_[n]; 
-  }
+  memcpy(buf, buf_, N_ * sizeof(float));
 }
 
 Tensor::~Tensor() {
@@ -76,9 +74,7 @@ int Tensor::num_elem() {
 
 void Tensor::fill_zeros() {
   int N_ = num_elem();
-  for (int n=0; n<N_; ++n) { 
-    buf[n] = 0.0; 
-  }
+  memset(buf, 0, N_ * sizeof(float));
 }
 
 void Tensor::load() {
@@ -286,10 +282,7 @@ void translator(Tensor *input, Tensor *output, int N){
  */
 void embedding(int ei, Tensor *weight, Tensor *output){
   int H_ = weight->shape[1];
-  
-  for (int h=0; h<H_; ++h) {
-    output->buf[h] = weight->buf[ei * H_ + h];
-  }
+  memcpy(output->buf, &weight->buf[ei * H_], H_ * sizeof(float));
 }
 
 /*
@@ -408,9 +401,7 @@ void elemwise_oneminus(Tensor *input, Tensor *output) {
 void copy_encoder_outputs(Tensor *input, Tensor *output, int i) {
   int N_ = input->num_elem();
   
-  for (int n=0; n<N_; ++n) {
-    output->buf[i * HIDDEN_SIZE + n] = input->buf[n];
-  }
+  memcpy(&output->buf[i * HIDDEN_SIZE], input->buf, N_ * sizeof(float));
 }
 
 /*
@@ -424,12 +415,8 @@ void copy_encoder_outputs(Tensor *input, Tensor *output, int i) {
 void concat(Tensor *input1, Tensor *input2, Tensor *output) {
   int N_ = input1->num_elem();
   
-  for (int n=0; n<N_; ++n) {
-    output->buf[n] = input1->buf[n];
-  }
-  for (int n=N_; n<2*N_; ++n) {
-    output->buf[n] = input2->buf[n-N_];
-  }
+  memcpy(output->buf, input1->buf, N_ * sizeof(float));
+  memcpy(&output->buf[N_], input2->buf, N_ * sizeof(float));
 }
 
 /*
