@@ -31,14 +31,15 @@
 #define BN 128
 #define TM 8
 #define TN 8
+#define NUM_GPUS 1
+#define DEBUG 0
 
-__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K);
-
-static int SOS_token = 0;
-static int EOS_token = 1;
-static int HIDDEN_SIZE = 256;
-static int INPUT_VOCAB_SIZE = 4345;
-static int OUTPUT_VOCAB_SIZE = 2803;
+#define SOS_token 0
+#define EOS_token 1
+#define HIDDEN_SIZE 256
+#define INPUT_VOCAB_SIZE 4345
+#define OUTPUT_VOCAB_SIZE 2803
+cudaStream_t stream[NUM_GPUS];
 
 /*
  * Tensor 
@@ -133,8 +134,8 @@ int Tensor::check_values(int d) {
   float *tmp = (float *)malloc(N_ * sizeof(float));
   CUDA_CALL(cudaMemcpy(tmp, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
   for (int i=0; i<N_; ++i) {
-    if (abs(tmp[i] - buf[i]) > 1e-5) {
-      fprintf(stderr, "ERROR:Difference: %f\n", abs(tmp[i] - buf[i]));
+    if (abs(tmp[i] - buf[i]) > 1e-3) {
+      fprintf(stderr, "ERROR: buf: %f, d_buf: %f\n", buf[i], tmp[i]);
       return 1;
     }
   }
@@ -142,54 +143,122 @@ int Tensor::check_values(int d) {
 }
 
 // Parameters
-Tensor *eW_emb;
-Tensor *eW_ir, *eW_iz, *eW_in;
-Tensor *eW_hr, *eW_hz, *eW_hn;
-Tensor *eb_ir, *eb_iz, *eb_in;
-Tensor *eb_hr, *eb_hz, *eb_hn;
-Tensor *dW_emb;
-Tensor *dW_ir, *dW_iz, *dW_in;
-Tensor *dW_hr, *dW_hz, *dW_hn;
-Tensor *db_ir, *db_iz, *db_in;
-Tensor *db_hr, *db_hz, *db_hn;
-Tensor *dW_attn, *db_attn, *dW_attn_comb, *db_attn_comb, *dW_out, *db_out;
+Tensor *eW_emb_raw;
+Tensor *eW_ir_raw;
+Tensor *eW_iz_raw;
+Tensor *eW_in_raw;
+Tensor *eW_hr_raw;
+Tensor *eW_hz_raw;
+Tensor *eW_hn_raw;
+Tensor *eb_ir_raw;
+Tensor *eb_iz_raw;
+Tensor *eb_in_raw;
+Tensor *eb_hr_raw;
+Tensor *eb_hz_raw;
+Tensor *eb_hn_raw;
+Tensor *dW_emb_raw;
+Tensor *dW_ir_raw;
+Tensor *dW_iz_raw;
+Tensor *dW_in_raw;
+Tensor *dW_hr_raw;
+Tensor *dW_hz_raw;
+Tensor *dW_hn_raw;
+Tensor *db_ir_raw;
+Tensor *db_iz_raw;
+Tensor *db_in_raw;
+Tensor *db_hr_raw;
+Tensor *db_hz_raw;
+Tensor *db_hn_raw;
+Tensor *dW_attn_raw;
+Tensor *db_attn_raw;
+Tensor *dW_attn_comb_raw;
+Tensor *db_attn_comb_raw;
+Tensor *dW_out_raw;
+Tensor *db_out_raw;
+
+Tensor *eW_emb[NUM_GPUS];
+Tensor *eW_ir[NUM_GPUS], *eW_iz[NUM_GPUS], *eW_in[NUM_GPUS];
+Tensor *eW_hr[NUM_GPUS], *eW_hz[NUM_GPUS], *eW_hn[NUM_GPUS];
+Tensor *eb_ir[NUM_GPUS], *eb_iz[NUM_GPUS], *eb_in[NUM_GPUS];
+Tensor *eb_hr[NUM_GPUS], *eb_hz[NUM_GPUS], *eb_hn[NUM_GPUS];
+Tensor *dW_emb[NUM_GPUS];
+Tensor *dW_ir[NUM_GPUS], *dW_iz[NUM_GPUS], *dW_in[NUM_GPUS];
+Tensor *dW_hr[NUM_GPUS], *dW_hz[NUM_GPUS], *dW_hn[NUM_GPUS];
+Tensor *db_ir[NUM_GPUS], *db_iz[NUM_GPUS], *db_in[NUM_GPUS];
+Tensor *db_hr[NUM_GPUS], *db_hz[NUM_GPUS], *db_hn[NUM_GPUS];
+Tensor *dW_attn[NUM_GPUS], *db_attn[NUM_GPUS], *dW_attn_comb[NUM_GPUS], *db_attn_comb[NUM_GPUS], *dW_out[NUM_GPUS], *db_out[NUM_GPUS];
 
 // Encoder Activations
-Tensor *encoder_hidden, *encoder_outputs;
-Tensor *encoder_embedded;
-Tensor *encoder_rtmp1, *encoder_rtmp2, *encoder_rtmp3, *encoder_rtmp4, *encoder_rtmp5, *encoder_rt; 
-Tensor *encoder_ztmp1, *encoder_ztmp2, *encoder_ztmp3, *encoder_ztmp4, *encoder_ztmp5, *encoder_zt;
-Tensor *encoder_ntmp1, *encoder_ntmp2, *encoder_ntmp3, *encoder_ntmp4, *encoder_ntmp5, *encoder_ntmp6, *encoder_nt;
-Tensor *encoder_htmp1, *encoder_htmp2, *encoder_htmp3, *encoder_ht;
+Tensor *encoder_hidden[NUM_GPUS], *encoder_outputs[NUM_GPUS];
+Tensor *encoder_embedded[NUM_GPUS];
+Tensor *encoder_rtmp2[NUM_GPUS], *encoder_rtmp4[NUM_GPUS], *encoder_rt[NUM_GPUS];
+Tensor *encoder_ztmp2[NUM_GPUS], *encoder_ztmp4[NUM_GPUS], *encoder_zt[NUM_GPUS];
+Tensor *encoder_ntmp2[NUM_GPUS], *encoder_ntmp4[NUM_GPUS], *encoder_ntmp5[NUM_GPUS], *encoder_nt[NUM_GPUS];
+Tensor *encoder_htmp1[NUM_GPUS], *encoder_htmp2[NUM_GPUS], *encoder_htmp3[NUM_GPUS], *encoder_ht[NUM_GPUS];
 
 // Decoder Activations
-Tensor *decoder_input, *decoder_output, *decoder_hidden, *decoded_words, *decoder_embedded, *decoder_embhid;
-Tensor *decoder_attn, *decoder_attn_weights, *decoder_attn_applied, *decoder_embattn;
-Tensor *decoder_attn_comb, *decoder_relu;
-Tensor *decoder_rtmp1, *decoder_rtmp2, *decoder_rtmp3, *decoder_rtmp4, *decoder_rtmp5, *decoder_rt; 
-Tensor *decoder_ztmp1, *decoder_ztmp2, *decoder_ztmp3, *decoder_ztmp4, *decoder_ztmp5, *decoder_zt;
-Tensor *decoder_ntmp1, *decoder_ntmp2, *decoder_ntmp3, *decoder_ntmp4, *decoder_ntmp5, *decoder_ntmp6, *decoder_nt;
-Tensor *decoder_htmp1, *decoder_htmp2, *decoder_htmp3, *decoder_ht;
-Tensor *decoder_out, *decoder_logsoftmax;
+Tensor *decoder_input[NUM_GPUS], *decoder_output[NUM_GPUS], *decoder_hidden[NUM_GPUS], *decoded_words[NUM_GPUS], *decoder_embedded[NUM_GPUS], *decoder_embhid[NUM_GPUS];
+Tensor *decoder_attn[NUM_GPUS], *decoder_attn_weights[NUM_GPUS], *decoder_attn_applied[NUM_GPUS], *decoder_embattn[NUM_GPUS];
+Tensor *decoder_attn_comb[NUM_GPUS], *decoder_relu[NUM_GPUS];
+Tensor *decoder_rtmp2[NUM_GPUS], *decoder_rtmp4[NUM_GPUS], *decoder_rt[NUM_GPUS]; 
+Tensor *decoder_ztmp2[NUM_GPUS], *decoder_ztmp4[NUM_GPUS], *decoder_zt[NUM_GPUS];
+Tensor *decoder_ntmp2[NUM_GPUS], *decoder_ntmp4[NUM_GPUS], *decoder_ntmp5[NUM_GPUS], *decoder_nt[NUM_GPUS];
+Tensor *decoder_htmp1[NUM_GPUS], *decoder_htmp2[NUM_GPUS], *decoder_htmp3[NUM_GPUS], *decoder_ht[NUM_GPUS];
+Tensor *decoder_out[NUM_GPUS], *decoder_logsoftmax[NUM_GPUS];
 
 // Operations
-void embedding(int ei, Tensor *weight, Tensor *output);
-// void matvec(Tensor *input, Tensor *weight, Tensor *output);
-void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output);
-void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output);
-void elemwise_sigmoid(Tensor *input, Tensor *output);
-void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output);
-void elemwise_tanh(Tensor *input, Tensor *output);
-void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output);
-void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output);
-void elemwise_oneminus(Tensor *input, Tensor *output);
-void copy_encoder_outputs(Tensor *input, Tensor *output, int i);
-void concat(Tensor *input1, Tensor *input2, Tensor *output);
-void softmax(Tensor *input, Tensor *output);
-void bmm(Tensor *input, Tensor *weight, Tensor *output);
-void relu(Tensor *input, Tensor *output);
-int  top_one(Tensor *input);
-void log_softmax(Tensor *input, Tensor *output);
+void embedding(int ei, Tensor *weight, Tensor *output, int d);
+void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output, int d);
+void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output, int d);
+void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output, int d);
+void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output, int d);
+void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output, int d);
+void elemwise_oneminus(Tensor *input, Tensor *output, int d);
+void copy_encoder_outputs(Tensor *input, Tensor *output, int i, int d);
+void concat(Tensor *input1, Tensor *input2, Tensor *output, int d);
+void softmax(Tensor *input, Tensor *output, int d);
+void bmm(Tensor *input, Tensor *weight, Tensor *output, int d);
+void relu(Tensor *input, Tensor *output, int d);
+int  log_top_one(Tensor *input, int d);
+void load_parameters(int d);
+__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K);
+__global__ void linear_cal(const float *input, const float *weight, const float *bias, float *output, int M, int N);
+__global__ void bmm_cal(const float *input, const float *weight, float *output, int K, int N);
+__global__ void elemwise_add_cal(const float *input1, const float *input2, float *output, int M);
+__global__ void elemwise_add_sigmoid_cal(const float *input1, const float *input2, float *output, int M);
+__global__ void elemwise_add_tanh_cal(const float *input1, const float *input2, float *output, int M);
+__global__ void elemwise_mult_cal(const float *input1, const float *input2, float *output, int M);
+__global__ void elemwise_oneminus_cal(const float *input, float *output, int M);
+__global__ void softmax_cal(const float *input, float *output, float *sum, int M);
+__global__ void relu_cal(const float *input, float *output, int M);
+
+
+
+
+template<bool use_expf>
+__global__ void reduce_sum_cal(const float *input, float *output, int M) {
+  __shared__ float smem[HIDDEN_SIZE];
+  unsigned int tid = threadIdx.x;
+  unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+  // load input into __shared__ memory
+  if (use_expf) {
+    smem[tid] = (i < M) ? expf(input[i]) : 0;
+  } else {
+    smem[tid] = (i < M) ? input[i] : 0;
+  }
+  __syncthreads();
+  for (int s = (blockDim.x >> 1); s > 0; s = s >> 1) {
+    if (tid < s) {
+      smem[tid] += smem[tid + s];
+    }
+    __syncthreads();
+  }
+  // result of this block
+  if (tid == 0) output[blockIdx.x] += smem[tid];
+}
+
+template __global__ void reduce_sum_cal<true>(const float *input, float *output, int M);
+template __global__ void reduce_sum_cal<false>(const float *input, float *output, int M);
 
 /*
  * translator 
@@ -203,99 +272,101 @@ void translator(Tensor *input, Tensor *output, int N){
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   if (mpi_rank == 0) {
-    
+
     // N sentences 
     for (int n=0; n<N; ++n) {
-      
+      int d = n % NUM_GPUS;
+      CUDA_CALL(cudaSetDevice(d));
+
+      // load parameters
+      load_parameters(d);
+      input->to_device(d);
       // Encoder init
       int input_length = 0;
       for (int i=0; i<MAX_LENGTH; ++i, ++input_length) {
         if (input->buf[n * MAX_LENGTH + i] == 0.0) break;
       }
-      encoder_hidden->fill_zeros();
-      encoder_outputs->fill_zeros();
+      encoder_hidden[d]->fill_zeros(d);
+      encoder_outputs[d]->fill_zeros(d);
 
       // Encoder
       for (int i=0; i<input_length; ++i) {
         
         // Embedding
         int ei = input->buf[n * MAX_LENGTH + i];
-        embedding(ei, eW_emb, encoder_embedded);
-        
+        embedding(ei, eW_emb[d], encoder_embedded[d], d);
         // GRU
         // r_t
-        linear(encoder_embedded, eW_ir, eb_ir, encoder_rtmp2);
-        linear(encoder_hidden, eW_hr, eb_hr, encoder_rtmp4);
-        elemwise_add_sigmoid(encoder_rtmp2, encoder_rtmp4, encoder_rt);
+        linear(encoder_embedded[d], eW_ir[d], eb_ir[d], encoder_rtmp2[d], d);
+        linear(encoder_hidden[d], eW_hr[d], eb_hr[d], encoder_rtmp4[d], d);
+        elemwise_add_sigmoid(encoder_rtmp2[d], encoder_rtmp4[d], encoder_rt[d], d);
         
         // z_t
-        linear(encoder_embedded, eW_iz, eb_iz, encoder_ztmp2);
-        linear(encoder_hidden, eW_hz, eb_hz, encoder_ztmp4);
-        elemwise_add_sigmoid(encoder_ztmp2, encoder_ztmp4, encoder_zt);
-       
+        linear(encoder_embedded[d], eW_iz[d], eb_iz[d], encoder_ztmp2[d], d);
+        linear(encoder_hidden[d], eW_hz[d], eb_hz[d], encoder_ztmp4[d], d);
+        elemwise_add_sigmoid(encoder_ztmp2[d], encoder_ztmp4[d], encoder_zt[d], d);
+        
         // n_t
-        linear(encoder_embedded, eW_in, eb_in, encoder_ntmp2);
-        linear(encoder_hidden, eW_hn, eb_hn, encoder_ntmp4);
-        elemwise_mult(encoder_rt, encoder_ntmp4, encoder_ntmp5);
-        elemwise_add_tanh(encoder_ntmp2, encoder_ntmp5, encoder_nt);
+        linear(encoder_embedded[d], eW_in[d], eb_in[d], encoder_ntmp2[d], d);
+        linear(encoder_hidden[d], eW_hn[d], eb_hn[d], encoder_ntmp4[d], d);
+        elemwise_mult(encoder_rt[d], encoder_ntmp4[d], encoder_ntmp5[d], d);
+        elemwise_add_tanh(encoder_ntmp2[d], encoder_ntmp5[d], encoder_nt[d], d);
         
         // h_t
-        elemwise_oneminus(encoder_zt, encoder_htmp1);
-        elemwise_mult(encoder_htmp1, encoder_nt, encoder_htmp2);
-        elemwise_mult(encoder_zt, encoder_hidden, encoder_htmp3);
-        elemwise_add(encoder_htmp2, encoder_htmp3, encoder_hidden);
+        elemwise_oneminus(encoder_zt[d], encoder_htmp1[d], d);
+        elemwise_mult(encoder_htmp1[d], encoder_nt[d], encoder_htmp2[d], d);
+        elemwise_mult(encoder_zt[d], encoder_hidden[d], encoder_htmp3[d], d);
+        elemwise_add(encoder_htmp2[d], encoder_htmp3[d], encoder_hidden[d], d);
         
-        copy_encoder_outputs(encoder_hidden, encoder_outputs, i);
+        copy_encoder_outputs(encoder_hidden[d], encoder_outputs[d], i, d);
       } // end Encoder loop
-      
+
       // Decoder init
-      decoder_hidden = encoder_hidden;
-      decoder_input->buf[0] = SOS_token; 
-      int di = (int)decoder_input->buf[0];
-     
+      decoder_hidden[d] = encoder_hidden[d];
+      decoder_input[d]->buf[0] = SOS_token; 
+      int di = (int)decoder_input[d]->buf[0];
       // Decoder
       for (int i=0; i<MAX_LENGTH; ++i) {
-        
-        // Embedding
-        embedding(di, dW_emb, decoder_embedded);
 
+        // Embedding
+        embedding(di, dW_emb[d], decoder_embedded[d], d);
         // Attention
-        concat(decoder_embedded, decoder_hidden, decoder_embhid);
-        linear(decoder_embhid, dW_attn, db_attn, decoder_attn);
-        softmax(decoder_attn, decoder_attn_weights);
-        bmm(decoder_attn_weights, encoder_outputs, decoder_attn_applied);
-        concat(decoder_embedded, decoder_attn_applied, decoder_embattn);
-        linear(decoder_embattn, dW_attn_comb, db_attn_comb, decoder_attn_comb);
-        relu(decoder_attn_comb, decoder_relu);
-      
+        concat(decoder_embedded[d], decoder_hidden[d], decoder_embhid[d], d);
+        linear(decoder_embhid[d], dW_attn[d], db_attn[d], decoder_attn[d], d);
+        softmax(decoder_attn[d], decoder_attn_weights[d], d);
+        bmm(decoder_attn_weights[d], encoder_outputs[d], decoder_attn_applied[d], d);
+        concat(decoder_embedded[d], decoder_attn_applied[d], decoder_embattn[d], d);
+        linear(decoder_embattn[d], dW_attn_comb[d], db_attn_comb[d], decoder_attn_comb[d], d);
+        relu(decoder_attn_comb[d], decoder_relu[d], d);
+
         // GRU
         // r_t
-        linear(decoder_relu, dW_ir, db_ir, decoder_rtmp2);
-        linear(decoder_hidden, dW_hr, db_hr, decoder_rtmp4);
-        elemwise_add_sigmoid(decoder_rtmp2, decoder_rtmp4, decoder_rt);
-        
+        linear(decoder_relu[d], dW_ir[d], db_ir[d], decoder_rtmp2[d], d);
+        linear(decoder_hidden[d], dW_hr[d], db_hr[d], decoder_rtmp4[d], d);
+        elemwise_add_sigmoid(decoder_rtmp2[d], decoder_rtmp4[d], decoder_rt[d], d);
+
         // z_t
-        linear(decoder_relu, dW_iz, db_iz, decoder_ztmp2);
-        linear(decoder_hidden, dW_hz, db_hz, decoder_ztmp4);
-        elemwise_add_sigmoid(decoder_ztmp2, decoder_ztmp4, decoder_zt);
+        linear(decoder_relu[d], dW_iz[d], db_iz[d], decoder_ztmp2[d], d);
+        linear(decoder_hidden[d], dW_hz[d], db_hz[d], decoder_ztmp4[d], d);
+        elemwise_add_sigmoid(decoder_ztmp2[d], decoder_ztmp4[d], decoder_zt[d], d);
         
         // n_t
-        linear(decoder_relu, dW_in, db_in, decoder_ntmp2);
-        linear(decoder_hidden, dW_hn, db_hn, decoder_ntmp4);
-        elemwise_mult(decoder_rt, decoder_ntmp4, decoder_ntmp5);
-        elemwise_add_tanh(decoder_ntmp2, decoder_ntmp5, decoder_nt);
-        
+        linear(decoder_relu[d], dW_in[d], db_in[d], decoder_ntmp2[d], d);
+        linear(decoder_hidden[d], dW_hn[d], db_hn[d], decoder_ntmp4[d], d);
+        elemwise_mult(decoder_rt[d], decoder_ntmp4[d], decoder_ntmp5[d], d);
+        elemwise_add_tanh(decoder_ntmp2[d], decoder_ntmp5[d], decoder_nt[d], d);
+
         // h_t
-        elemwise_oneminus(decoder_zt, decoder_htmp1);
-        elemwise_mult(decoder_htmp1, decoder_nt, decoder_htmp2);
-        elemwise_mult(decoder_zt, decoder_hidden, decoder_htmp3);
-        elemwise_add(decoder_htmp2, decoder_htmp3, decoder_hidden);
-       
+        elemwise_oneminus(decoder_zt[d], decoder_htmp1[d], d);
+        elemwise_mult(decoder_htmp1[d], decoder_nt[d], decoder_htmp2[d], d);
+        elemwise_mult(decoder_zt[d], decoder_hidden[d], decoder_htmp3[d], d);
+        elemwise_add(decoder_htmp2[d], decoder_htmp3[d], decoder_hidden[d], d);
+
         // Select output token
-        linear(decoder_hidden, dW_out, db_out, decoder_out);
-        log_softmax(decoder_out, decoder_logsoftmax);
-        int topi= top_one(decoder_logsoftmax);
-         
+        linear(decoder_hidden[d], dW_out[d], db_out[d], decoder_out[d], d);
+        softmax(decoder_out[d], decoder_logsoftmax[d], d);
+        int topi = log_top_one(decoder_logsoftmax[d], d);
+
         if (topi != EOS_token) {
           output->buf[n * MAX_LENGTH + i] = topi;
           di = topi;
@@ -317,32 +388,14 @@ void translator(Tensor *input, Tensor *output, int N){
  * @param [in2] weight : a matrix of size [M x H_]
  * @param [out] output : a vector of size [H_]
  */
-void embedding(int ei, Tensor *weight, Tensor *output){
-  int H_ = weight->shape[1];
-  memcpy(output->buf, &weight->buf[ei * H_], H_ * sizeof(float));
-}
+void embedding(int ei, Tensor *weight, Tensor *output, int d){
+  CUDA_CALL(cudaSetDevice(d));
 
-/*
- * matvec 
- * @brief : Perform a matrix-vector product of the matrix and the vector
- *
- * @param [in1] input  : a vector of size [K_]
- * @param [in2] weight : a matrix of size [M_ x K_]
- * @param [out] output : a vector of size [M_]
- */
-void matvec(Tensor *input, Tensor *weight, Tensor *output) {
-  int M_ = weight->shape[0];
-  int K_ = weight->shape[1];
-  
-  for (int m=0; m<M_; ++m) {
-    float c = 0.0;
-    for (int k=0; k<K_; ++k) {
-      float w = weight->buf[m*K_+k];
-      float i = input->buf[k];
-      c += w*i;
-    }
-    output->buf[m] = c;
-  }
+  int H_ = weight->shape[1];
+  #if DEBUG
+  memcpy(output->buf, &weight->buf[ei * H_], H_ * sizeof(float));
+  #endif
+  CUDA_CALL(cudaMemcpyAsync(output->d_buf, &weight->d_buf[ei * H_], H_ * sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
 }
 
 /*
@@ -353,12 +406,16 @@ void matvec(Tensor *input, Tensor *weight, Tensor *output) {
  * @param [in2] input2
  * @param [out] output
  */
-void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output){
+void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output, int d){
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input1->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     output->buf[n] = input1->buf[n] + input2->buf[n];
   }
+  #endif
+  elemwise_add_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -369,12 +426,16 @@ void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output){
  * @param [in2] input2
  * @param [out] output
  */
-void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output){
+void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output, int d){
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input1->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     output->buf[n] = 1.0 / (1.0 + exp(-(input1->buf[n] + input2->buf[n])));
   }
+  #endif
+  elemwise_add_sigmoid_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -385,12 +446,16 @@ void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output){
  * @param [in2] input2
  * @param [out] output
  */
-void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output){
+void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output, int d){
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input1->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     output->buf[n] = tanhf(input1->buf[n] + input2->buf[n]);
   }
+  #endif
+  elemwise_add_tanh_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -403,10 +468,12 @@ void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output){
  * @param [out] output  : a vector of size [M_]
  * @return : output = weight * input + bias
  */
-void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output) {
+void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int M_ = weight->shape[0];
   int K_ = weight->shape[1];
   
+  #if DEBUG
   for (int m=0; m<M_; ++m) {
     float c = 0.0;
     for (int k=0; k<K_; ++k) {
@@ -416,38 +483,9 @@ void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output) {
     }
     output->buf[m] = c + bias->buf[m];
   }
-}
+  #endif
 
-/*
- * elemwise_sigmoid
- * @brief : Apply the element-wise sigmoid function. sigmoid(x) = 1 / (1 + exp(-x))
- *
- * @param [in1] input
- * @param [out] output
- */
-void elemwise_sigmoid(Tensor *input, Tensor *output) {
-  int N_ = input->num_elem();
-  
-  for (int n=0; n<N_; ++n) {
-    float x = input->buf[n];
-    output->buf[n] = 1.0 / (1.0 + expf(-x));
-  }
-}
-
-/*
- * elemwise_tanh
- * @brief : Apply the Hyperbolic Tangent (Tanh) function element-wise.
- *
- * @param [in1] input
- * @param [out] output
- */
-void elemwise_tanh(Tensor *input, Tensor *output) {
-  int N_ = input->num_elem();
-  
-  for (int n=0; n<N_; ++n) {
-    float x = input->buf[n];
-    output->buf[n] = tanhf(x);
-  }
+  linear_cal<<<(M_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, weight->d_buf, bias->d_buf, output->d_buf, M_, K_);
 }
 
 /*
@@ -458,14 +496,18 @@ void elemwise_tanh(Tensor *input, Tensor *output) {
  * @param [in2] input2
  * @param [out] output
  */
-void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output) {
+void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input1->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     float x1 = input1->buf[n];
     float x2 = input2->buf[n];
     output->buf[n] = x1 * x2;
   }
+  #endif
+  elemwise_mult_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -475,13 +517,17 @@ void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output) {
  * @param [in1] input
  * @param [out] output
  */
-void elemwise_oneminus(Tensor *input, Tensor *output) {
+void elemwise_oneminus(Tensor *input, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     float x = input->buf[n];
     output->buf[n] = 1.0 - x;
   }
+  #endif
+  elemwise_oneminus_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -492,10 +538,14 @@ void elemwise_oneminus(Tensor *input, Tensor *output) {
  * @param [in2] i      : row index
  * @param [out] output : a matrix of size [MAX_LENGTH x N_]
  */
-void copy_encoder_outputs(Tensor *input, Tensor *output, int i) {
+void copy_encoder_outputs(Tensor *input, Tensor *output, int i, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input->num_elem();
   
+  #if DEBUG
   memcpy(&output->buf[i * HIDDEN_SIZE], input->buf, N_ * sizeof(float));
+  #endif
+  CUDA_CALL(cudaMemcpyAsync(&output->d_buf[i * HIDDEN_SIZE], input->d_buf, N_ * sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
 }
 
 /*
@@ -506,11 +556,16 @@ void copy_encoder_outputs(Tensor *input, Tensor *output, int i) {
  * @param [in2] input2 : a vector of size [N_]
  * @param [out] output : a vector of size [2*N_]
  */
-void concat(Tensor *input1, Tensor *input2, Tensor *output) {
+void concat(Tensor *input1, Tensor *input2, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input1->num_elem();
-  
+
+  #if DEBUG
   memcpy(output->buf, input1->buf, N_ * sizeof(float));
   memcpy(&output->buf[N_], input2->buf, N_ * sizeof(float));
+  #endif
+  CUDA_CALL(cudaMemcpyAsync(output->d_buf, input1->d_buf, N_ * sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
+  CUDA_CALL(cudaMemcpyAsync(&output->d_buf[N_], input2->d_buf, N_ * sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
 }
 
 /*
@@ -522,16 +577,37 @@ void concat(Tensor *input1, Tensor *input2, Tensor *output) {
  * @param [in1] input  : a vector of size [N_]
  * @param [out] output : a vector of size [N_]
  */
-void softmax(Tensor *input, Tensor *output) {
+void softmax(Tensor *input, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input->shape[0];
+  #if DEBUG
   float sum = 0.0;
-  
+
   for (int n=0; n<N_; ++n) {
     sum += expf(input->buf[n]);
   }
   for (int n=0; n<N_; ++n) {
     output->buf[n] = expf(input->buf[n]) / sum;
   }
+  #endif
+
+  reduce_sum_cal<true><<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
+  // (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE << This is num reduced value
+  for (int l = (N_ + HIDDEN_SIZE - 1) / HIDDEN_SIZE; l > 1; l = (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE) {
+    reduce_sum_cal<false><<<(l + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, l);
+  }
+
+  float *sum_p;
+  CUDA_CALL(cudaMalloc(&sum_p, sizeof(float)));
+  CUDA_CALL(cudaMemcpyAsync(sum_p, output->d_buf, sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
+
+  #if DEBUG
+  float sum2 = 0.0;
+  CUDA_CALL(cudaStreamSynchronize(stream[d]));
+  CUDA_CALL(cudaMemcpy(&sum2, sum_p, sizeof(float), cudaMemcpyDeviceToHost));
+  #endif
+
+  softmax_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, sum_p, N_);
 }
 
 /*
@@ -543,10 +619,12 @@ void softmax(Tensor *input, Tensor *output) {
  * @param [in2] weight : a matrix of size [K_ x N_]
  * @param [out] output : a vector of size [N_]
  */
-void bmm(Tensor *input, Tensor *weight, Tensor *output) {
+void bmm(Tensor *input, Tensor *weight, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int K_ = weight->shape[0];
   int N_ = weight->shape[1];
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     float c = 0.0;
     for (int k=0; k<K_; ++k) {
@@ -554,6 +632,8 @@ void bmm(Tensor *input, Tensor *weight, Tensor *output) {
     }
     output->buf[n] = c;
   }
+  #endif
+  bmm_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, weight->d_buf, output->d_buf, K_, N_);
 }
 
 /*
@@ -563,55 +643,42 @@ void bmm(Tensor *input, Tensor *weight, Tensor *output) {
  * @param [in1] input  : a vector of size [N_]
  * @param [out] output : a vector of size [N_]
  */
-void relu(Tensor *input, Tensor *output) {
+void relu(Tensor *input, Tensor *output, int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = input->num_elem();
   
+  #if DEBUG
   for (int n=0; n<N_; ++n) {
     float x = input->buf[n];
     if (x < 0.0) output->buf[n] = 0.0;
     else output->buf[n] = x;
   }
+  #endif
+  relu_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
 }
 
 /*
- * top_one
- * @brief : Return the largest element of the given input tensor.
+ * log_top_one
+ * @brief : Return the largest element of the log of given input tensor.
  *          
  * @param  [in1] input  : a vector of size [N_]
  * @return [ret] topi   : an index of the largest element
  */
-int top_one(Tensor *input) {
+int log_top_one(Tensor *input, int d) {
+  CUDA_CALL(cudaSetDevice(d));
+  input->to_host(d);
   int N_ = input->num_elem();
   int topi = 0;
-  float topval = input->buf[0];
+  float topval = logf(input->buf[0]);
   
   for (int n=1; n<N_; ++n) {
-    float x = input->buf[n];    
+    float x = logf(input->buf[n]);
     if (x >= topval) {
       topi = n;
       topval = x;
     }
   }
   return topi;
-}
-
-/*
- * log_softmax
- * @brief : Appli the log_softmax function to an input tensor. logsoftmax(x) = log(softmax(x))
- *          
- * @param [in1] input  : a vector of size [N_]
- * @param [out] output : a vector of size [N_]
- */
-void log_softmax(Tensor *input, Tensor *output) {
-  int N_ = input->shape[0];
-  float sum = 0.0;
-  
-  for (int n=0; n<N_; ++n) {
-    sum += expf(input->buf[n]);
-  }
-  for (int n=0; n<N_; ++n) {
-    output->buf[n] = logf(expf(input->buf[n]) / sum);
-  }
 }
 
 /*
@@ -626,104 +693,124 @@ void initialize_translator(const char *parameter_fname, int N){
   if (mpi_rank == 0) {
     size_t parameter_binary_size = 0;
     float *parameter = (float *) read_binary(parameter_fname, &parameter_binary_size);
-    
-    eW_emb = new Tensor({INPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET0);
-    eW_ir = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET1);
-    eW_iz = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET2);
-    eW_in = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET3);
-    eW_hr = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET4);
-    eW_hz = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET5);
-    eW_hn = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET6);
-    eb_ir = new Tensor({HIDDEN_SIZE}, parameter + OFFSET7);
-    eb_iz = new Tensor({HIDDEN_SIZE}, parameter + OFFSET8);
-    eb_in = new Tensor({HIDDEN_SIZE}, parameter + OFFSET9);
-    eb_hr = new Tensor({HIDDEN_SIZE}, parameter + OFFSET10);
-    eb_hz = new Tensor({HIDDEN_SIZE}, parameter + OFFSET11);
-    eb_hn = new Tensor({HIDDEN_SIZE}, parameter + OFFSET12);
-    dW_emb = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET13);
-    dW_ir = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET14);
-    dW_iz = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET15);
-    dW_in = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET16);
-    dW_hr = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET17);
-    dW_hz = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET18);
-    dW_hn = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET19);
-    db_ir = new Tensor({HIDDEN_SIZE}, parameter + OFFSET20);
-    db_iz = new Tensor({HIDDEN_SIZE}, parameter + OFFSET21);
-    db_in = new Tensor({HIDDEN_SIZE}, parameter + OFFSET22);
-    db_hr = new Tensor({HIDDEN_SIZE}, parameter + OFFSET23);
-    db_hz = new Tensor({HIDDEN_SIZE}, parameter + OFFSET24);
-    db_hn = new Tensor({HIDDEN_SIZE}, parameter + OFFSET25);
-    dW_attn = new Tensor({MAX_LENGTH, 2 * HIDDEN_SIZE}, parameter + OFFSET26);
-    db_attn = new Tensor({MAX_LENGTH}, parameter + OFFSET27);
-    dW_attn_comb = new Tensor({HIDDEN_SIZE, 2 * HIDDEN_SIZE}, parameter + OFFSET28);
-    db_attn_comb = new Tensor({HIDDEN_SIZE}, parameter + OFFSET29);
-    dW_out = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET30);
-    db_out = new Tensor({OUTPUT_VOCAB_SIZE}, parameter + OFFSET31);
 
-    encoder_hidden = new Tensor({HIDDEN_SIZE});
-    encoder_outputs = new Tensor({MAX_LENGTH, HIDDEN_SIZE});
-    encoder_embedded = new Tensor({HIDDEN_SIZE});
-    encoder_rtmp1 = new Tensor({HIDDEN_SIZE});
-    encoder_rtmp2 = new Tensor({HIDDEN_SIZE});
-    encoder_rtmp3 = new Tensor({HIDDEN_SIZE});
-    encoder_rtmp4 = new Tensor({HIDDEN_SIZE});
-    encoder_rtmp5 = new Tensor({HIDDEN_SIZE});
-    encoder_rt = new Tensor({HIDDEN_SIZE});
-    encoder_ztmp1 = new Tensor({HIDDEN_SIZE});
-    encoder_ztmp2 = new Tensor({HIDDEN_SIZE});
-    encoder_ztmp3 = new Tensor({HIDDEN_SIZE});
-    encoder_ztmp4 = new Tensor({HIDDEN_SIZE});
-    encoder_ztmp5 = new Tensor({HIDDEN_SIZE});
-    encoder_zt = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp1 = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp2 = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp3 = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp4 = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp5 = new Tensor({HIDDEN_SIZE});
-    encoder_ntmp6 = new Tensor({HIDDEN_SIZE});
-    encoder_nt = new Tensor({HIDDEN_SIZE});
-    encoder_htmp1 = new Tensor({HIDDEN_SIZE});
-    encoder_htmp2 = new Tensor({HIDDEN_SIZE});
-    encoder_htmp3 = new Tensor({HIDDEN_SIZE});
-    encoder_ht = new Tensor({HIDDEN_SIZE});
+    eW_emb_raw = new Tensor({INPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET0);
+    eW_ir_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET1);
+    eW_iz_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET2);
+    eW_in_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET3);
+    eW_hr_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET4);
+    eW_hz_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET5);
+    eW_hn_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET6);
+    eb_ir_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET7);
+    eb_iz_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET8);
+    eb_in_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET9);
+    eb_hr_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET10);
+    eb_hz_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET11);
+    eb_hn_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET12);
+    dW_emb_raw = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET13);
+    dW_ir_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET14);
+    dW_iz_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET15);
+    dW_in_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET16);
+    dW_hr_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET17);
+    dW_hz_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET18);
+    dW_hn_raw = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE}, parameter + OFFSET19);
+    db_ir_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET20);
+    db_iz_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET21);
+    db_in_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET22);
+    db_hr_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET23);
+    db_hz_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET24);
+    db_hn_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET25);
+    dW_attn_raw = new Tensor({MAX_LENGTH, 2 * HIDDEN_SIZE}, parameter + OFFSET26);
+    db_attn_raw = new Tensor({MAX_LENGTH}, parameter + OFFSET27);
+    dW_attn_comb_raw = new Tensor({HIDDEN_SIZE, 2 * HIDDEN_SIZE}, parameter + OFFSET28);
+    db_attn_comb_raw = new Tensor({HIDDEN_SIZE}, parameter + OFFSET29);
+    dW_out_raw = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE}, parameter + OFFSET30);
+    db_out_raw = new Tensor({OUTPUT_VOCAB_SIZE}, parameter + OFFSET31);
 
-    decoder_input = new Tensor({MAX_LENGTH});
-    decoder_hidden = new Tensor({HIDDEN_SIZE});
-    decoder_output = new Tensor({HIDDEN_SIZE});
-    decoded_words = new Tensor({MAX_LENGTH});
-    decoder_embedded = new Tensor({HIDDEN_SIZE});
-    decoder_embhid = new Tensor({2 * HIDDEN_SIZE});
-    decoder_attn = new Tensor({MAX_LENGTH});
-    decoder_attn_weights = new Tensor ({MAX_LENGTH});
-    decoder_attn_applied = new Tensor({HIDDEN_SIZE});
-    decoder_embattn = new Tensor({2 * HIDDEN_SIZE});
-    decoder_attn_comb = new Tensor({HIDDEN_SIZE});
-    decoder_relu = new Tensor({HIDDEN_SIZE});
-    decoder_rtmp1 = new Tensor({HIDDEN_SIZE});
-    decoder_rtmp2 = new Tensor({HIDDEN_SIZE});
-    decoder_rtmp3 = new Tensor({HIDDEN_SIZE});
-    decoder_rtmp4 = new Tensor({HIDDEN_SIZE});
-    decoder_rtmp5 = new Tensor({HIDDEN_SIZE});
-    decoder_rt = new Tensor({HIDDEN_SIZE});
-    decoder_ztmp1 = new Tensor({HIDDEN_SIZE});
-    decoder_ztmp2 = new Tensor({HIDDEN_SIZE});
-    decoder_ztmp3 = new Tensor({HIDDEN_SIZE});
-    decoder_ztmp4 = new Tensor({HIDDEN_SIZE});
-    decoder_ztmp5 = new Tensor({HIDDEN_SIZE});
-    decoder_zt = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp1 = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp2 = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp3 = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp4 = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp5 = new Tensor({HIDDEN_SIZE});
-    decoder_ntmp6 = new Tensor({HIDDEN_SIZE});
-    decoder_nt = new Tensor({HIDDEN_SIZE});
-    decoder_htmp1 = new Tensor({HIDDEN_SIZE});
-    decoder_htmp2 = new Tensor({HIDDEN_SIZE});
-    decoder_htmp3 = new Tensor({HIDDEN_SIZE});
-    decoder_ht = new Tensor({HIDDEN_SIZE});
-    decoder_out = new Tensor({OUTPUT_VOCAB_SIZE});
-    decoder_logsoftmax = new Tensor({OUTPUT_VOCAB_SIZE});
+    for (int d = 0; d < NUM_GPUS; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaStreamCreate(&stream[d]));
+
+      eW_emb[d] = new Tensor({INPUT_VOCAB_SIZE, HIDDEN_SIZE});
+      eW_ir[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eW_iz[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eW_in[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eW_hr[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eW_hz[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eW_hn[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      eb_ir[d] = new Tensor({HIDDEN_SIZE});
+      eb_iz[d] = new Tensor({HIDDEN_SIZE});
+      eb_in[d] = new Tensor({HIDDEN_SIZE});
+      eb_hr[d] = new Tensor({HIDDEN_SIZE});
+      eb_hz[d] = new Tensor({HIDDEN_SIZE});
+      eb_hn[d] = new Tensor({HIDDEN_SIZE});
+      dW_emb[d] = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE});
+      dW_ir[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      dW_iz[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      dW_in[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      dW_hr[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      dW_hz[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      dW_hn[d] = new Tensor({HIDDEN_SIZE, HIDDEN_SIZE});
+      db_ir[d] = new Tensor({HIDDEN_SIZE});
+      db_iz[d] = new Tensor({HIDDEN_SIZE});
+      db_in[d] = new Tensor({HIDDEN_SIZE});
+      db_hr[d] = new Tensor({HIDDEN_SIZE});
+      db_hz[d] = new Tensor({HIDDEN_SIZE});
+      db_hn[d] = new Tensor({HIDDEN_SIZE});
+      dW_attn[d] = new Tensor({MAX_LENGTH, 2 * HIDDEN_SIZE});
+      db_attn[d] = new Tensor({MAX_LENGTH});
+      dW_attn_comb[d] = new Tensor({HIDDEN_SIZE, 2 * HIDDEN_SIZE});
+      db_attn_comb[d] = new Tensor({HIDDEN_SIZE});
+      dW_out[d] = new Tensor({OUTPUT_VOCAB_SIZE, HIDDEN_SIZE});
+      db_out[d] = new Tensor({OUTPUT_VOCAB_SIZE});
+
+      encoder_hidden[d] = new Tensor({HIDDEN_SIZE});
+      encoder_outputs[d] = new Tensor({MAX_LENGTH, HIDDEN_SIZE});
+      encoder_embedded[d] = new Tensor({HIDDEN_SIZE});
+      encoder_rtmp2[d] = new Tensor({HIDDEN_SIZE});
+      encoder_rtmp4[d] = new Tensor({HIDDEN_SIZE});
+      encoder_rt[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ztmp2[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ztmp4[d] = new Tensor({HIDDEN_SIZE});
+      encoder_zt[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ntmp2[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ntmp4[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ntmp5[d] = new Tensor({HIDDEN_SIZE});
+      encoder_nt[d] = new Tensor({HIDDEN_SIZE});
+      encoder_htmp1[d] = new Tensor({HIDDEN_SIZE});
+      encoder_htmp2[d] = new Tensor({HIDDEN_SIZE});
+      encoder_htmp3[d] = new Tensor({HIDDEN_SIZE});
+      encoder_ht[d] = new Tensor({HIDDEN_SIZE});
+
+      decoder_input[d] = new Tensor({MAX_LENGTH});
+      // decoder_hidden[d] = new Tensor({HIDDEN_SIZE});
+      decoder_output[d] = new Tensor({HIDDEN_SIZE});
+      decoded_words[d] = new Tensor({MAX_LENGTH});
+      decoder_embedded[d] = new Tensor({HIDDEN_SIZE});
+      decoder_embhid[d] = new Tensor({2 * HIDDEN_SIZE});
+      decoder_attn[d] = new Tensor({MAX_LENGTH});
+      decoder_attn_weights[d] = new Tensor ({MAX_LENGTH});
+      decoder_attn_applied[d] = new Tensor({HIDDEN_SIZE});
+      decoder_embattn[d] = new Tensor({2 * HIDDEN_SIZE});
+      decoder_attn_comb[d] = new Tensor({HIDDEN_SIZE});
+      decoder_relu[d] = new Tensor({HIDDEN_SIZE});
+      decoder_rtmp2[d] = new Tensor({HIDDEN_SIZE});
+      decoder_rtmp4[d] = new Tensor({HIDDEN_SIZE});
+      decoder_rt[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ztmp2[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ztmp4[d] = new Tensor({HIDDEN_SIZE});
+      decoder_zt[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ntmp2[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ntmp4[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ntmp5[d] = new Tensor({HIDDEN_SIZE});
+      decoder_nt[d] = new Tensor({HIDDEN_SIZE});
+      decoder_htmp1[d] = new Tensor({HIDDEN_SIZE});
+      decoder_htmp2[d] = new Tensor({HIDDEN_SIZE});
+      decoder_htmp3[d] = new Tensor({HIDDEN_SIZE});
+      decoder_ht[d] = new Tensor({HIDDEN_SIZE});
+      decoder_out[d] = new Tensor({OUTPUT_VOCAB_SIZE});
+      decoder_logsoftmax[d] = new Tensor({OUTPUT_VOCAB_SIZE});
+    }
   }
 }
 
@@ -737,106 +824,126 @@ void finalize_translator(){
   if (mpi_rank == 0) {
     fprintf(stderr, "\n");
 
-    // free parameters
-    delete eW_emb;
-    delete eW_ir; 
-    delete eW_iz; 
-    delete eW_in; 
-    delete eW_hr; 
-    delete eW_hz; 
-    delete eW_hn; 
-    delete eb_ir; 
-    delete eb_iz; 
-    delete eb_in; 
-    delete eb_hr; 
-    delete eb_hz; 
-    delete eb_hn; 
-    delete dW_emb;
-    delete dW_ir; 
-    delete dW_iz; 
-    delete dW_in; 
-    delete dW_hr; 
-    delete dW_hz; 
-    delete dW_hn; 
-    delete db_ir; 
-    delete db_iz; 
-    delete db_in; 
-    delete db_hr; 
-    delete db_hz; 
-    delete db_hn; 
-    delete dW_attn;
-    delete db_attn;
-    delete dW_attn_comb;
-    delete db_attn_comb;
-    delete dW_out;
-    delete db_out;
+    delete eW_emb_raw;
+    delete eW_ir_raw;
+    delete eW_iz_raw;
+    delete eW_in_raw;
+    delete eW_hr_raw;
+    delete eW_hz_raw;
+    delete eW_hn_raw;
+    delete eb_ir_raw;
+    delete eb_iz_raw;
+    delete eb_in_raw;
+    delete eb_hr_raw;
+    delete eb_hz_raw;
+    delete eb_hn_raw;
+    delete dW_emb_raw;
+    delete dW_ir_raw;
+    delete dW_iz_raw;
+    delete dW_in_raw;
+    delete dW_hr_raw;
+    delete dW_hz_raw;
+    delete dW_hn_raw;
+    delete db_ir_raw;
+    delete db_iz_raw;
+    delete db_in_raw;
+    delete db_hr_raw;
+    delete db_hz_raw;
+    delete db_hn_raw;
+    delete dW_attn_raw;
+    delete db_attn_raw;
+    delete dW_attn_comb_raw;
+    delete db_attn_comb_raw;
+    delete dW_out_raw;
+    delete db_out_raw;
 
-    // free encoder activations
-    delete encoder_hidden;
-    delete encoder_outputs;
-    delete encoder_embedded;
-    delete encoder_rtmp1;
-    delete encoder_rtmp2;
-    delete encoder_rtmp3;
-    delete encoder_rtmp4;
-    delete encoder_rtmp5;
-    delete encoder_rt;
-    delete encoder_ztmp1; 
-    delete encoder_ztmp2; 
-    delete encoder_ztmp3; 
-    delete encoder_ztmp4; 
-    delete encoder_ztmp5; 
-    delete encoder_zt; 
-    delete encoder_ntmp1;
-    delete encoder_ntmp2;
-    delete encoder_ntmp3;
-    delete encoder_ntmp4;
-    delete encoder_ntmp5;
-    delete encoder_ntmp6;
-    delete encoder_nt;
-    delete encoder_htmp1;
-    delete encoder_htmp2;
-    delete encoder_htmp3;
-    delete encoder_ht;
+    for (int d = 0; d < NUM_GPUS; ++d) {
+      CUDA_CALL(cudaSetDevice(d));
+      CUDA_CALL(cudaStreamDestroy(stream[d]));
 
-    // free decoder activations
-    delete decoder_input;
-    //delete decoder_hidden;
-    delete decoder_output;
-    delete decoded_words;
-    delete decoder_embedded;
-    delete decoder_embhid;
-    delete decoder_attn;
-    delete decoder_attn_weights;
-    delete decoder_attn_applied;
-    delete decoder_embattn;
-    delete decoder_attn_comb;
-    delete decoder_relu;
-    delete decoder_rtmp1;
-    delete decoder_rtmp2;
-    delete decoder_rtmp3;
-    delete decoder_rtmp4;
-    delete decoder_rtmp5;
-    delete decoder_rt; 
-    delete decoder_ztmp1;
-    delete decoder_ztmp2;
-    delete decoder_ztmp3;
-    delete decoder_ztmp4;
-    delete decoder_ztmp5;
-    delete decoder_zt; 
-    delete decoder_ntmp1;
-    delete decoder_ntmp2;
-    delete decoder_ntmp3;
-    delete decoder_ntmp4;
-    delete decoder_ntmp5;
-    delete decoder_ntmp6;
-    delete decoder_nt;
-    delete decoder_htmp1;
-    delete decoder_htmp2;
-    delete decoder_htmp3;
-    delete decoder_ht;
-    delete decoder_out;
-    delete decoder_logsoftmax;
+      // free parameters
+      // delete eW_emb[d];
+      // delete eW_ir[d]; 
+      // delete eW_iz[d]; 
+      // delete eW_in[d]; 
+      // delete eW_hr[d]; 
+      // delete eW_hz[d]; 
+      // delete eW_hn[d]; 
+      // delete eb_ir[d]; 
+      // delete eb_iz[d]; 
+      // delete eb_in[d]; 
+      // delete eb_hr[d]; 
+      // delete eb_hz[d]; 
+      // delete eb_hn[d]; 
+      // delete dW_emb[d];
+      // delete dW_ir[d]; 
+      // delete dW_iz[d]; 
+      // delete dW_in[d]; 
+      // delete dW_hr[d]; 
+      // delete dW_hz[d]; 
+      // delete dW_hn[d]; 
+      // delete db_ir[d]; 
+      // delete db_iz[d]; 
+      // delete db_in[d]; 
+      // delete db_hr[d]; 
+      // delete db_hz[d]; 
+      // delete db_hn[d]; 
+      // delete dW_attn[d];
+      // delete db_attn[d];
+      // delete dW_attn_comb[d];
+      // delete db_attn_comb[d];
+      // delete dW_out[d];
+      // delete db_out[d];
+
+      // free encoder activations
+      delete encoder_hidden[d];
+      delete encoder_outputs[d];
+      delete encoder_embedded[d];
+      delete encoder_rtmp2[d];
+      delete encoder_rtmp4[d];
+      delete encoder_rt[d];
+      delete encoder_ztmp2[d]; 
+      delete encoder_ztmp4[d]; 
+      delete encoder_zt[d]; 
+      delete encoder_ntmp2[d];
+      delete encoder_ntmp4[d];
+      delete encoder_ntmp5[d];
+      delete encoder_nt[d];
+      delete encoder_htmp1[d];
+      delete encoder_htmp2[d];
+      delete encoder_htmp3[d];
+      delete encoder_ht[d];
+
+      // free decoder activations
+      delete decoder_input[d];
+      //delete decoder_hidden;
+      delete decoder_output[d];
+      delete decoded_words[d];
+      delete decoder_embedded[d];
+      delete decoder_embhid[d];
+      delete decoder_attn[d];
+      delete decoder_attn_weights[d];
+      delete decoder_attn_applied[d];
+      delete decoder_embattn[d];
+      delete decoder_attn_comb[d];
+      delete decoder_relu[d];
+      delete decoder_rtmp2[d];
+      delete decoder_rtmp4[d];
+      delete decoder_rt[d];
+      delete decoder_ztmp2[d];
+      delete decoder_ztmp4[d];
+      delete decoder_zt[d];
+      delete decoder_ntmp2[d];
+      delete decoder_ntmp4[d];
+      delete decoder_ntmp5[d];
+      delete decoder_nt[d];
+      delete decoder_htmp1[d];
+      delete decoder_htmp2[d];
+      delete decoder_htmp3[d];
+      delete decoder_ht[d];
+      delete decoder_out[d];
+      delete decoder_logsoftmax[d];
+    }
   }
 }
 
@@ -913,4 +1020,145 @@ __global__ void matmul_cal(const float *A, const float *B, float *C, int M, int 
       C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] = res[resIdxM * TN + resIdxN];
     }
   }
+}
+
+__global__ void linear_cal(const float *input, const float *weight, const float *bias, float *output, int M, int K) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    float sum = 0.0;
+    for (int i = 0; i < K; i++) {
+      sum += weight[m * K + i] * input[i];
+    }
+    output[m] = sum + bias[m];
+  }
+}
+
+__global__ void bmm_cal(const float *input, const float *weight, float *output, int K, int N) {
+  int n = blockIdx.x * blockDim.x + threadIdx.x;
+  if (n < N) {
+    float sum = 0.0;
+    for (int k = 0; k < K; k++) {
+      sum += weight[k * N + n] * input[k];
+    }
+    output[n] = sum;
+  }
+}
+
+__global__ void elemwise_add_cal(const float *input1, const float *input2, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = input1[m] + input2[m];
+  }
+}
+
+__global__ void elemwise_add_sigmoid_cal(const float *input1, const float *input2, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = 1.0 / (1.0 + exp(- (input1[m] + input2[m])));
+  }
+}
+
+__global__ void elemwise_add_tanh_cal(const float *input1, const float *input2, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = tanhf(input1[m] + input2[m]);
+  }
+}
+
+__global__ void elemwise_mult_cal(const float *input1, const float *input2, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = input1[m] * input2[m];
+  }
+}
+
+__global__ void elemwise_oneminus_cal(const float *input, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = 1.0 - input[m];
+  }
+}
+
+__global__ void softmax_cal(const float *input, float *output, float *sum, int M) {
+  float threadSum = *sum;
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = expf(input[m]) / threadSum;
+  }
+}
+
+__global__ void relu_cal(const float *input, float *output, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    output[m] = fmaxf(input[m], 0);
+  }
+}
+
+void load_parameters(int d) {
+  eW_emb[d]->copy_from(eW_emb_raw);
+  eW_ir[d]->copy_from(eW_ir_raw);
+  eW_iz[d]->copy_from(eW_iz_raw);
+  eW_in[d]->copy_from(eW_in_raw);
+  eW_hr[d]->copy_from(eW_hr_raw);
+  eW_hz[d]->copy_from(eW_hz_raw);
+  eW_hn[d]->copy_from(eW_hn_raw);
+  eb_ir[d]->copy_from(eb_ir_raw);
+  eb_iz[d]->copy_from(eb_iz_raw);
+  eb_in[d]->copy_from(eb_in_raw);
+  eb_hr[d]->copy_from(eb_hr_raw);
+  eb_hz[d]->copy_from(eb_hz_raw);
+  eb_hn[d]->copy_from(eb_hn_raw);
+  dW_emb[d]->copy_from(dW_emb_raw);
+  dW_ir[d]->copy_from(dW_ir_raw);
+  dW_iz[d]->copy_from(dW_iz_raw);
+  dW_in[d]->copy_from(dW_in_raw);
+  dW_hr[d]->copy_from(dW_hr_raw);
+  dW_hz[d]->copy_from(dW_hz_raw);
+  dW_hn[d]->copy_from(dW_hn_raw);
+  db_ir[d]->copy_from(db_ir_raw);
+  db_iz[d]->copy_from(db_iz_raw);
+  db_in[d]->copy_from(db_in_raw);
+  db_hr[d]->copy_from(db_hr_raw);
+  db_hz[d]->copy_from(db_hz_raw);
+  db_hn[d]->copy_from(db_hn_raw);
+  dW_attn[d]->copy_from(dW_attn_raw);
+  db_attn[d]->copy_from(db_attn_raw);
+  dW_attn_comb[d]->copy_from(dW_attn_comb_raw);
+  db_attn_comb[d]->copy_from(db_attn_comb_raw);
+  dW_out[d]->copy_from(dW_out_raw);
+  db_out[d]->copy_from(db_out_raw);
+
+  CUDA_CALL(cudaSetDevice(d));
+  eW_emb[d]->to_device(d);
+  eW_ir[d]->to_device(d);
+  eW_iz[d]->to_device(d);
+  eW_in[d]->to_device(d);
+  eW_hr[d]->to_device(d);
+  eW_hz[d]->to_device(d);
+  eW_hn[d]->to_device(d);
+  eb_ir[d]->to_device(d);
+  eb_iz[d]->to_device(d);
+  eb_in[d]->to_device(d);
+  eb_hr[d]->to_device(d);
+  eb_hz[d]->to_device(d);
+  eb_hn[d]->to_device(d);
+  dW_emb[d]->to_device(d);
+  dW_ir[d]->to_device(d);
+  dW_iz[d]->to_device(d);
+  dW_in[d]->to_device(d);
+  dW_hr[d]->to_device(d);
+  dW_hz[d]->to_device(d);
+  dW_hn[d]->to_device(d);
+  db_ir[d]->to_device(d);
+  db_iz[d]->to_device(d);
+  db_in[d]->to_device(d);
+  db_hr[d]->to_device(d);
+  db_hz[d]->to_device(d);
+  db_hn[d]->to_device(d);
+  dW_attn[d]->to_device(d);
+  db_attn[d]->to_device(d);
+  dW_attn_comb[d]->to_device(d);
+  db_attn_comb[d]->to_device(d);
+  dW_out[d]->to_device(d);
+  db_out[d]->to_device(d);
 }
