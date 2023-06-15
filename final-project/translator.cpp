@@ -31,7 +31,7 @@
 #define BN 128
 #define TM 8
 #define TN 8
-#define NUM_GPUS 1
+#define NUM_GPUS 4
 #define DEBUG 0
 
 #define SOS_token 0
@@ -40,6 +40,7 @@
 #define INPUT_VOCAB_SIZE 4345
 #define OUTPUT_VOCAB_SIZE 2803
 cudaStream_t stream[NUM_GPUS];
+pthread_t thread[NUM_GPUS];
 
 /*
  * Tensor 
@@ -232,7 +233,13 @@ __global__ void elemwise_oneminus_cal(const float *input, float *output, int M);
 __global__ void softmax_cal(const float *input, float *output, float *sum, int M);
 __global__ void relu_cal(const float *input, float *output, int M);
 
-
+typedef struct {
+  int d;
+  int start;
+  int end;
+  Tensor *input;
+  Tensor *output;
+} trans_args;
 
 
 template<bool use_expf>
@@ -260,6 +267,116 @@ __global__ void reduce_sum_cal(const float *input, float *output, int M) {
 template __global__ void reduce_sum_cal<true>(const float *input, float *output, int M);
 template __global__ void reduce_sum_cal<false>(const float *input, float *output, int M);
 
+void *translate(void *args) {
+  trans_args *arg = (trans_args *) args;
+  int d = arg->d;
+  int start = arg->start;
+  int end = arg->end;
+  Tensor *input = arg->input;
+  Tensor *output = arg->output;
+
+  CUDA_CALL(cudaSetDevice(d));
+
+  for (int n = start; n < end; ++n) {
+    // Encoder init
+    int input_length = 0;
+    for (int i=0; i<MAX_LENGTH; ++i, ++input_length) {
+      if (input->buf[n * MAX_LENGTH + i] == 0.0) break;
+    }
+    encoder_hidden[d]->fill_zeros(d);
+    encoder_outputs[d]->fill_zeros(d);
+
+    // Encoder
+    for (int i=0; i<input_length; ++i) {
+      
+      // Embedding
+      int ei = input->buf[n * MAX_LENGTH + i];
+      embedding(ei, eW_emb[d], encoder_embedded[d], d);
+      // GRU
+      // r_t
+      linear(encoder_embedded[d], eW_ir[d], eb_ir[d], encoder_rtmp2[d], d);
+      linear(encoder_hidden[d], eW_hr[d], eb_hr[d], encoder_rtmp4[d], d);
+      elemwise_add_sigmoid(encoder_rtmp2[d], encoder_rtmp4[d], encoder_rt[d], d);
+      
+      // z_t
+      linear(encoder_embedded[d], eW_iz[d], eb_iz[d], encoder_ztmp2[d], d);
+      linear(encoder_hidden[d], eW_hz[d], eb_hz[d], encoder_ztmp4[d], d);
+      elemwise_add_sigmoid(encoder_ztmp2[d], encoder_ztmp4[d], encoder_zt[d], d);
+      
+      // n_t
+      linear(encoder_embedded[d], eW_in[d], eb_in[d], encoder_ntmp2[d], d);
+      linear(encoder_hidden[d], eW_hn[d], eb_hn[d], encoder_ntmp4[d], d);
+      elemwise_mult(encoder_rt[d], encoder_ntmp4[d], encoder_ntmp5[d], d);
+      elemwise_add_tanh(encoder_ntmp2[d], encoder_ntmp5[d], encoder_nt[d], d);
+      
+      // h_t
+      elemwise_oneminus(encoder_zt[d], encoder_htmp1[d], d);
+      elemwise_mult(encoder_htmp1[d], encoder_nt[d], encoder_htmp2[d], d);
+      elemwise_mult(encoder_zt[d], encoder_hidden[d], encoder_htmp3[d], d);
+      elemwise_add(encoder_htmp2[d], encoder_htmp3[d], encoder_hidden[d], d);
+      
+      copy_encoder_outputs(encoder_hidden[d], encoder_outputs[d], i, d);
+    } // end Encoder loop
+
+    // Decoder init
+    decoder_hidden[d] = encoder_hidden[d];
+    decoder_input[d]->buf[0] = SOS_token; 
+    int di = (int)decoder_input[d]->buf[0];
+    // Decoder
+    for (int i=0; i<MAX_LENGTH; ++i) {
+
+      // Embedding
+      embedding(di, dW_emb[d], decoder_embedded[d], d);
+      // Attention
+      concat(decoder_embedded[d], decoder_hidden[d], decoder_embhid[d], d);
+      linear(decoder_embhid[d], dW_attn[d], db_attn[d], decoder_attn[d], d);
+      softmax(decoder_attn[d], decoder_attn_weights[d], d);
+      bmm(decoder_attn_weights[d], encoder_outputs[d], decoder_attn_applied[d], d);
+      concat(decoder_embedded[d], decoder_attn_applied[d], decoder_embattn[d], d);
+      linear(decoder_embattn[d], dW_attn_comb[d], db_attn_comb[d], decoder_attn_comb[d], d);
+      relu(decoder_attn_comb[d], decoder_relu[d], d);
+
+      // GRU
+      // r_t
+      linear(decoder_relu[d], dW_ir[d], db_ir[d], decoder_rtmp2[d], d);
+      linear(decoder_hidden[d], dW_hr[d], db_hr[d], decoder_rtmp4[d], d);
+      elemwise_add_sigmoid(decoder_rtmp2[d], decoder_rtmp4[d], decoder_rt[d], d);
+
+      // z_t
+      linear(decoder_relu[d], dW_iz[d], db_iz[d], decoder_ztmp2[d], d);
+      linear(decoder_hidden[d], dW_hz[d], db_hz[d], decoder_ztmp4[d], d);
+      elemwise_add_sigmoid(decoder_ztmp2[d], decoder_ztmp4[d], decoder_zt[d], d);
+      
+      // n_t
+      linear(decoder_relu[d], dW_in[d], db_in[d], decoder_ntmp2[d], d);
+      linear(decoder_hidden[d], dW_hn[d], db_hn[d], decoder_ntmp4[d], d);
+      elemwise_mult(decoder_rt[d], decoder_ntmp4[d], decoder_ntmp5[d], d);
+      elemwise_add_tanh(decoder_ntmp2[d], decoder_ntmp5[d], decoder_nt[d], d);
+
+      // h_t
+      elemwise_oneminus(decoder_zt[d], decoder_htmp1[d], d);
+      elemwise_mult(decoder_htmp1[d], decoder_nt[d], decoder_htmp2[d], d);
+      elemwise_mult(decoder_zt[d], decoder_hidden[d], decoder_htmp3[d], d);
+      elemwise_add(decoder_htmp2[d], decoder_htmp3[d], decoder_hidden[d], d);
+
+      // Select output token
+      linear(decoder_hidden[d], dW_out[d], db_out[d], decoder_out[d], d);
+      softmax(decoder_out[d], decoder_logsoftmax[d], d);
+      int topi = log_top_one(decoder_logsoftmax[d], d);
+
+      if (topi != EOS_token) {
+        output->buf[n * MAX_LENGTH + i] = topi;
+        di = topi;
+      }
+      else {
+        output->buf[n * MAX_LENGTH + i] = EOS_token;
+        break;
+      }
+    } // end Decoder loop
+  }
+  return NULL;
+}
+
 /*
  * translator 
  * @brief : French to English translator. 
@@ -272,111 +389,20 @@ void translator(Tensor *input, Tensor *output, int N){
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   if (mpi_rank == 0) {
-
-    // N sentences 
-    for (int n=0; n<N; ++n) {
-      int d = n % NUM_GPUS;
-      CUDA_CALL(cudaSetDevice(d));
-
+    // N sentences
+    for (int d = 0; d < NUM_GPUS; ++d) {
       // load parameters
       load_parameters(d);
       input->to_device(d);
-      // Encoder init
-      int input_length = 0;
-      for (int i=0; i<MAX_LENGTH; ++i, ++input_length) {
-        if (input->buf[n * MAX_LENGTH + i] == 0.0) break;
-      }
-      encoder_hidden[d]->fill_zeros(d);
-      encoder_outputs[d]->fill_zeros(d);
 
-      // Encoder
-      for (int i=0; i<input_length; ++i) {
-        
-        // Embedding
-        int ei = input->buf[n * MAX_LENGTH + i];
-        embedding(ei, eW_emb[d], encoder_embedded[d], d);
-        // GRU
-        // r_t
-        linear(encoder_embedded[d], eW_ir[d], eb_ir[d], encoder_rtmp2[d], d);
-        linear(encoder_hidden[d], eW_hr[d], eb_hr[d], encoder_rtmp4[d], d);
-        elemwise_add_sigmoid(encoder_rtmp2[d], encoder_rtmp4[d], encoder_rt[d], d);
-        
-        // z_t
-        linear(encoder_embedded[d], eW_iz[d], eb_iz[d], encoder_ztmp2[d], d);
-        linear(encoder_hidden[d], eW_hz[d], eb_hz[d], encoder_ztmp4[d], d);
-        elemwise_add_sigmoid(encoder_ztmp2[d], encoder_ztmp4[d], encoder_zt[d], d);
-        
-        // n_t
-        linear(encoder_embedded[d], eW_in[d], eb_in[d], encoder_ntmp2[d], d);
-        linear(encoder_hidden[d], eW_hn[d], eb_hn[d], encoder_ntmp4[d], d);
-        elemwise_mult(encoder_rt[d], encoder_ntmp4[d], encoder_ntmp5[d], d);
-        elemwise_add_tanh(encoder_ntmp2[d], encoder_ntmp5[d], encoder_nt[d], d);
-        
-        // h_t
-        elemwise_oneminus(encoder_zt[d], encoder_htmp1[d], d);
-        elemwise_mult(encoder_htmp1[d], encoder_nt[d], encoder_htmp2[d], d);
-        elemwise_mult(encoder_zt[d], encoder_hidden[d], encoder_htmp3[d], d);
-        elemwise_add(encoder_htmp2[d], encoder_htmp3[d], encoder_hidden[d], d);
-        
-        copy_encoder_outputs(encoder_hidden[d], encoder_outputs[d], i, d);
-      } // end Encoder loop
-
-      // Decoder init
-      decoder_hidden[d] = encoder_hidden[d];
-      decoder_input[d]->buf[0] = SOS_token; 
-      int di = (int)decoder_input[d]->buf[0];
-      // Decoder
-      for (int i=0; i<MAX_LENGTH; ++i) {
-
-        // Embedding
-        embedding(di, dW_emb[d], decoder_embedded[d], d);
-        // Attention
-        concat(decoder_embedded[d], decoder_hidden[d], decoder_embhid[d], d);
-        linear(decoder_embhid[d], dW_attn[d], db_attn[d], decoder_attn[d], d);
-        softmax(decoder_attn[d], decoder_attn_weights[d], d);
-        bmm(decoder_attn_weights[d], encoder_outputs[d], decoder_attn_applied[d], d);
-        concat(decoder_embedded[d], decoder_attn_applied[d], decoder_embattn[d], d);
-        linear(decoder_embattn[d], dW_attn_comb[d], db_attn_comb[d], decoder_attn_comb[d], d);
-        relu(decoder_attn_comb[d], decoder_relu[d], d);
-
-        // GRU
-        // r_t
-        linear(decoder_relu[d], dW_ir[d], db_ir[d], decoder_rtmp2[d], d);
-        linear(decoder_hidden[d], dW_hr[d], db_hr[d], decoder_rtmp4[d], d);
-        elemwise_add_sigmoid(decoder_rtmp2[d], decoder_rtmp4[d], decoder_rt[d], d);
-
-        // z_t
-        linear(decoder_relu[d], dW_iz[d], db_iz[d], decoder_ztmp2[d], d);
-        linear(decoder_hidden[d], dW_hz[d], db_hz[d], decoder_ztmp4[d], d);
-        elemwise_add_sigmoid(decoder_ztmp2[d], decoder_ztmp4[d], decoder_zt[d], d);
-        
-        // n_t
-        linear(decoder_relu[d], dW_in[d], db_in[d], decoder_ntmp2[d], d);
-        linear(decoder_hidden[d], dW_hn[d], db_hn[d], decoder_ntmp4[d], d);
-        elemwise_mult(decoder_rt[d], decoder_ntmp4[d], decoder_ntmp5[d], d);
-        elemwise_add_tanh(decoder_ntmp2[d], decoder_ntmp5[d], decoder_nt[d], d);
-
-        // h_t
-        elemwise_oneminus(decoder_zt[d], decoder_htmp1[d], d);
-        elemwise_mult(decoder_htmp1[d], decoder_nt[d], decoder_htmp2[d], d);
-        elemwise_mult(decoder_zt[d], decoder_hidden[d], decoder_htmp3[d], d);
-        elemwise_add(decoder_htmp2[d], decoder_htmp3[d], decoder_hidden[d], d);
-
-        // Select output token
-        linear(decoder_hidden[d], dW_out[d], db_out[d], decoder_out[d], d);
-        softmax(decoder_out[d], decoder_logsoftmax[d], d);
-        int topi = log_top_one(decoder_logsoftmax[d], d);
-
-        if (topi != EOS_token) {
-          output->buf[n * MAX_LENGTH + i] = topi;
-          di = topi;
-        }
-        else {
-          output->buf[n * MAX_LENGTH + i] = EOS_token;
-          break;
-        }
-      } // end Decoder loop
-    } // end N input sentences loop
+      int start = d * N / NUM_GPUS;
+      int end = (d + 1) * N / NUM_GPUS;
+      trans_args args = {d, start, end, input, output};
+      pthread_create(&thread[d], NULL, translate, (void *)&args);
+    }
+    for (int d = 0; d < NUM_GPUS; ++d) {
+      pthread_join(thread[d], NULL);
+    }
   } // if mpi_rank == 0
 }
 
