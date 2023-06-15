@@ -26,11 +26,6 @@
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-#define BM 128
-#define BK 8
-#define BN 128
-#define TM 8
-#define TN 8
 #define NUM_GPUS 4
 #define DEBUG 0
 
@@ -222,7 +217,6 @@ void bmm(Tensor *input, Tensor *weight, Tensor *output, int d);
 void relu(Tensor *input, Tensor *output, int d);
 int  log_top_one(Tensor *input, int d);
 void load_parameters(int d);
-__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K);
 __global__ void linear_cal(const float *input, const float *weight, const float *bias, float *output, int M, int N);
 __global__ void bmm_cal(const float *input, const float *weight, float *output, int K, int N);
 __global__ void elemwise_add_cal(const float *input1, const float *input2, float *output, int M);
@@ -969,81 +963,6 @@ void finalize_translator(){
       delete decoder_ht[d];
       delete decoder_out[d];
       delete decoder_logsoftmax[d];
-    }
-  }
-}
-
-__global__ void matmul_cal(const float *A, const float *B, float *C, int M, int N, int K) {
-  // TODO: FILL_IN_HERE
-  // ref: https://siboehm.com/articles/22/CUDA-MMM
-
-  // A: M x K
-  // B: K x N
-  // C: M x N
-
-  // Ap: K x M
-  // Bp: N x K
-
-  const int cRow = blockIdx.y;
-  const int cCol = blockIdx.x;
-  const int threadRow = threadIdx.x / (BN / TN);
-  const int threadCol = threadIdx.x % (BN / TN);
-
-  __shared__ float Asub[BM][BK];
-  __shared__ float Bsub[BK][BN];
-
-  A += cRow * BM * K;
-  B += cCol * BN;
-  C += cRow * BM * N + cCol * BN;
-
-  const int innerColA = threadIdx.x % BK;
-  const int innerRowA = threadIdx.x / BK;
-
-  const int innerColB = threadIdx.x % BN;
-  const int innerRowB = threadIdx.x / BN;
-
-  const int strideA = (BM * BN) / (TM * TN) / BK;
-  const int strideB = (BM * BN) / (TM * TN) / BN;
-
-    float res[TM * TN] = {0.0};
-
-  float regM[TM] = {0.0};
-  float regN[TN] = {0.0};
-
-  for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
-    for (int loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
-      Asub[innerRowA + loadOffset][innerColA] = A[(innerRowA + loadOffset) * K + innerColA];
-    }
-    for (int loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
-      Bsub[innerRowB + loadOffset][innerColB] = B[(innerRowB + loadOffset) * N + innerColB];
-    }
-
-    __syncthreads();
-
-    A += BK;
-    B += BK * N;
-
-    for(int dotIdx = 0; dotIdx < BK; ++dotIdx) {
-      for (int i = 0; i < TM; ++i) {
-        regM[i] = Asub[threadRow * TM + i][dotIdx];
-      }
-      for (int i = 0; i < TN; ++i) {
-        regN[i] = Bsub[dotIdx][threadCol * TN + i];
-      }
-
-      for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
-        for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
-          res[resIdxM * TN + resIdxN] += regM[resIdxM] * regN[resIdxN];
-        }
-      }
-    }
-
-    __syncthreads();
-  }
-  
-  for (int resIdxM = 0; resIdxM < TM; ++resIdxM) {
-    for (int resIdxN = 0; resIdxN < TN; ++resIdxN) {
-      C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] = res[resIdxM * TN + resIdxN];
     }
   }
 }
