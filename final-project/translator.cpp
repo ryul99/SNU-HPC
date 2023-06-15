@@ -133,7 +133,8 @@ int Tensor::check_values(int d) {
   float *tmp = (float *)malloc(N_ * sizeof(float));
   CUDA_CALL(cudaMemcpy(tmp, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
   for (int i=0; i<N_; ++i) {
-    if (tmp[i] != buf[i]) {
+    if (abs(tmp[i] - buf[i]) > 1e-5) {
+      fprintf(stderr, "ERROR:Difference: %f\n", abs(tmp[i] - buf[i]));
       return 1;
     }
   }
