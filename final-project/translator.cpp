@@ -14,6 +14,16 @@
     }                                                                          \
   }
 
+#define SANITY_CHECK(t,d)                                                     \
+  {                                                                           \
+    int ret = ((t)->check_values(d));                                         \
+    if (ret != 0) {                                                           \
+      fprintf(stderr, "[%s:%d] Sanity check failed at [%s]\n", __FILE__,      \
+              __LINE__, #t);                                                  \
+      exit(1);                                                                \
+    }                                                                         \
+  }                                                                           \
+
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #define BM 128
@@ -72,22 +82,63 @@ int Tensor::num_elem() {
   return sz;
 }
 
-void Tensor::fill_zeros() {
+void Tensor::fill_zeros(int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = num_elem();
   memset(buf, 0, N_ * sizeof(float));
   CUDA_CALL(cudaMemset(d_buf, 0, N_ * sizeof(float)));
 }
 
-void Tensor::load() {
+void Tensor::to_device(int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = num_elem();
-  CUDA_CALL(cudaMemcpy(d_buf, buf, N_ * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CALL(cudaMemcpyAsync(d_buf, buf, N_ * sizeof(float), cudaMemcpyHostToDevice, stream[d]));
 }
 
-void Tensor::store() {
+void Tensor::to_host(int d) {
+  CUDA_CALL(cudaSetDevice(d));
   int N_ = num_elem();
-  CUDA_CALL(cudaMemcpy(buf, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
+  CUDA_CALL(cudaMemcpyAsync(buf, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost, stream[d]));
+  CUDA_CALL(cudaStreamSynchronize(stream[d]));
 }
 
+void Tensor::copy_from(Tensor *src) {
+  int N_ = num_elem();
+  if (N_ != src->num_elem()) {
+    fprintf(stderr, "Tensor::copy_from() : size mismatch\n");
+    exit(1);
+  }
+  // memcpy(buf, src->buf, N_ * sizeof(float));
+  buf = src->buf;
+}
+
+void Tensor::print_device_value(int d) {
+  CUDA_CALL(cudaSetDevice(d));
+  CUDA_CALL(cudaStreamSynchronize(stream[d]));
+  int N_ = num_elem();
+  float *tmp = (float *)malloc(N_ * sizeof(float));
+  CUDA_CALL(cudaMemcpy(tmp, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
+  for (int i=0; i<N_; ++i) {
+    printf("%f ", tmp[i]);
+  }
+  printf("\n");
+  free(tmp);
+}
+
+int Tensor::check_values(int d) {
+  // check if buf and buf_d is same
+  CUDA_CALL(cudaSetDevice(d));
+  CUDA_CALL(cudaStreamSynchronize(stream[d]));
+  int N_ = num_elem();
+  float *tmp = (float *)malloc(N_ * sizeof(float));
+  CUDA_CALL(cudaMemcpy(tmp, d_buf, N_ * sizeof(float), cudaMemcpyDeviceToHost));
+  for (int i=0; i<N_; ++i) {
+    if (tmp[i] != buf[i]) {
+      return 1;
+    }
+  }
+  return 0;
+}
 
 // Parameters
 Tensor *eW_emb;

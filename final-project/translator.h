@@ -45,9 +45,12 @@ struct Tensor {
   Tensor(std::vector<int> shape_, float *buf_);
   ~Tensor();
   int num_elem();
-  void fill_zeros();
-  void load();
-  void store();
+  void fill_zeros(int d);
+  void to_device(int d);
+  void to_host(int d);
+  void copy_from(Tensor *t);
+  void print_device_value(int d);
+  int check_values(int d);
 
   float *buf = nullptr;
   float *d_buf = nullptr;
