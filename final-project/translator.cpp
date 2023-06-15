@@ -611,15 +611,21 @@ void softmax(Tensor *input, Tensor *output, int d) {
   }
   #endif
 
+  float *dmem;
+  float *tmp = output->d_buf;
+  CUDA_CALL(cudaMalloc(&dmem, N_ * sizeof(float)));
   reduce_sum_cal<true><<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
   // (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE << This is num reduced value
   for (int l = (N_ + HIDDEN_SIZE - 1) / HIDDEN_SIZE; l > 1; l = (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE) {
-    reduce_sum_cal<false><<<(l + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, l);
+    reduce_sum_cal<false><<<(l + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(output->d_buf, dmem, l);
+    tmp = dmem;
+    dmem = output->d_buf;
+    output->d_buf = tmp;
   }
 
   float *sum_p;
   CUDA_CALL(cudaMalloc(&sum_p, sizeof(float)));
-  CUDA_CALL(cudaMemcpyAsync(sum_p, output->d_buf, sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
+  CUDA_CALL(cudaMemcpyAsync(sum_p, tmp, sizeof(float), cudaMemcpyDeviceToDevice, stream[d]));
 
   #if DEBUG
   float sum2 = 0.0;
