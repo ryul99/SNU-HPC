@@ -246,7 +246,7 @@ __global__ void reduce_sum_cal(const float *input, float *output, int M) {
   if (is_first) {
     smem[tid] = (i < M) ? expf(input[i]) : 0;
   } else {
-    smem[tid] = (i < M) ? input[i] : 0;
+    smem[tid] = input[i];
   }
   __syncthreads();
   for (int s = (blockDim.x >> 1); s > 0; s = s >> 1) {
