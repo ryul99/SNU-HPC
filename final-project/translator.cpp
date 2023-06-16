@@ -173,6 +173,8 @@ Tensor *db_attn_comb_raw;
 Tensor *dW_out_raw;
 Tensor *db_out_raw;
 
+MPI_Request req[33];
+
 Tensor *eW_emb[NUM_GPUS];
 Tensor *eW_ir[NUM_GPUS], *eW_iz[NUM_GPUS], *eW_in[NUM_GPUS];
 Tensor *eW_hr[NUM_GPUS], *eW_hz[NUM_GPUS], *eW_hn[NUM_GPUS];
@@ -389,40 +391,44 @@ void translator(Tensor *input, Tensor *output, int N){
   Tensor *mpi_input = new Tensor({N, MAX_LENGTH});
   Tensor *mpi_output = new Tensor({N, MAX_LENGTH});
 
-  MPI_Bcast(eW_emb_raw->buf, eW_emb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_ir_raw->buf, eW_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_iz_raw->buf, eW_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_in_raw->buf, eW_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_hr_raw->buf, eW_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_hz_raw->buf, eW_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eW_hn_raw->buf, eW_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_ir_raw->buf, eb_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_iz_raw->buf, eb_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_in_raw->buf, eb_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_hr_raw->buf, eb_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_hz_raw->buf, eb_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(eb_hn_raw->buf, eb_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_emb_raw->buf, dW_emb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_ir_raw->buf, dW_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_iz_raw->buf, dW_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_in_raw->buf, dW_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_hr_raw->buf, dW_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_hz_raw->buf, dW_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_hn_raw->buf, dW_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_ir_raw->buf, db_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_iz_raw->buf, db_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_in_raw->buf, db_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_hr_raw->buf, db_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_hz_raw->buf, db_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_hn_raw->buf, db_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_attn_raw->buf, dW_attn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_attn_raw->buf, db_attn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_attn_comb_raw->buf, dW_attn_comb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_attn_comb_raw->buf, db_attn_comb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(dW_out_raw->buf, dW_out_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(db_out_raw->buf, db_out_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD);
+  int cnt = 0;
 
-  MPI_Scatter(input->buf, input->num_elem() / mpi_size, MPI_FLOAT, mpi_input->buf, mpi_input->num_elem() / mpi_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Ibcast(eW_emb_raw->buf, eW_emb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_ir_raw->buf, eW_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_iz_raw->buf, eW_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_in_raw->buf, eW_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_hr_raw->buf, eW_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_hz_raw->buf, eW_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eW_hn_raw->buf, eW_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_ir_raw->buf, eb_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_iz_raw->buf, eb_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_in_raw->buf, eb_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_hr_raw->buf, eb_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_hz_raw->buf, eb_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(eb_hn_raw->buf, eb_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_emb_raw->buf, dW_emb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_ir_raw->buf, dW_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_iz_raw->buf, dW_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_in_raw->buf, dW_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_hr_raw->buf, dW_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_hz_raw->buf, dW_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_hn_raw->buf, dW_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_ir_raw->buf, db_ir_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_iz_raw->buf, db_iz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_in_raw->buf, db_in_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_hr_raw->buf, db_hr_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_hz_raw->buf, db_hz_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_hn_raw->buf, db_hn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_attn_raw->buf, dW_attn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_attn_raw->buf, db_attn_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_attn_comb_raw->buf, dW_attn_comb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_attn_comb_raw->buf, db_attn_comb_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(dW_out_raw->buf, dW_out_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+  MPI_Ibcast(db_out_raw->buf, db_out_raw->num_elem(), MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+
+  MPI_Iscatter(input->buf, input->num_elem() / mpi_size, MPI_FLOAT, mpi_input->buf, mpi_input->num_elem() / mpi_size, MPI_FLOAT, 0, MPI_COMM_WORLD, &req[cnt++]);
+
+  MPI_Waitall(cnt, req, MPI_STATUSES_IGNORE);
 
   for (int d = 0; d < NUM_GPUS; ++d) {
     // load parameters
