@@ -32,6 +32,7 @@
 #define SOS_token 0
 #define EOS_token 1
 #define HIDDEN_SIZE 256
+#define NUM_THREADS 128
 #define INPUT_VOCAB_SIZE 4345
 #define OUTPUT_VOCAB_SIZE 2803
 cudaStream_t stream[NUM_GPUS];
@@ -238,7 +239,7 @@ typedef struct {
 
 template<bool use_expf>
 __global__ void reduce_sum_cal(const float *input, float *output, int M) {
-  __shared__ float smem[HIDDEN_SIZE];
+  __shared__ float smem[NUM_THREADS];
   unsigned int tid = threadIdx.x;
   unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
   // load input into __shared__ memory
@@ -435,7 +436,7 @@ void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output, int d){
     output->buf[n] = input1->buf[n] + input2->buf[n];
   }
   #endif
-  elemwise_add_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
+  elemwise_add_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -455,7 +456,7 @@ void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output, int d)
     output->buf[n] = 1.0 / (1.0 + exp(-(input1->buf[n] + input2->buf[n])));
   }
   #endif
-  elemwise_add_sigmoid_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
+  elemwise_add_sigmoid_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -475,7 +476,7 @@ void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output, int d){
     output->buf[n] = tanhf(input1->buf[n] + input2->buf[n]);
   }
   #endif
-  elemwise_add_tanh_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
+  elemwise_add_tanh_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -505,7 +506,7 @@ void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output, int d) 
   }
   #endif
 
-  linear_cal<<<(M_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, weight->d_buf, bias->d_buf, output->d_buf, M_, K_);
+  linear_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, weight->d_buf, bias->d_buf, output->d_buf, M_, K_);
 }
 
 /*
@@ -527,7 +528,7 @@ void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output, int d) {
     output->buf[n] = x1 * x2;
   }
   #endif
-  elemwise_mult_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
+  elemwise_mult_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input1->d_buf, input2->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -547,7 +548,7 @@ void elemwise_oneminus(Tensor *input, Tensor *output, int d) {
     output->buf[n] = 1.0 - x;
   }
   #endif
-  elemwise_oneminus_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
+  elemwise_oneminus_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
 }
 
 /*
@@ -614,10 +615,10 @@ void softmax(Tensor *input, Tensor *output, int d) {
   float *dmem;
   float *tmp = output->d_buf;
   CUDA_CALL(cudaMalloc(&dmem, N_ * sizeof(float)));
-  reduce_sum_cal<true><<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
-  // (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE << This is num reduced value
-  for (int l = (N_ + HIDDEN_SIZE - 1) / HIDDEN_SIZE; l > 1; l = (l + HIDDEN_SIZE - 1) / HIDDEN_SIZE) {
-    reduce_sum_cal<false><<<(l + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(output->d_buf, dmem, l);
+  reduce_sum_cal<true><<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
+  // (l + NUM_THREADS - 1) / NUM_THREADS << This is num reduced value
+  for (int l = (N_ + NUM_THREADS - 1) / NUM_THREADS; l > 1; l = (l + NUM_THREADS - 1) / NUM_THREADS) {
+    reduce_sum_cal<false><<<(l + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(output->d_buf, dmem, l);
     tmp = dmem;
     dmem = output->d_buf;
     output->d_buf = tmp;
@@ -633,7 +634,7 @@ void softmax(Tensor *input, Tensor *output, int d) {
   CUDA_CALL(cudaMemcpy(&sum2, sum_p, sizeof(float), cudaMemcpyDeviceToHost));
   #endif
 
-  softmax_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, sum_p, N_);
+  softmax_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, output->d_buf, sum_p, N_);
 }
 
 /*
@@ -659,7 +660,7 @@ void bmm(Tensor *input, Tensor *weight, Tensor *output, int d) {
     output->buf[n] = c;
   }
   #endif
-  bmm_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, weight->d_buf, output->d_buf, K_, N_);
+  bmm_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, weight->d_buf, output->d_buf, K_, N_);
 }
 
 /*
@@ -680,7 +681,7 @@ void relu(Tensor *input, Tensor *output, int d) {
     else output->buf[n] = x;
   }
   #endif
-  relu_cal<<<(N_ + HIDDEN_SIZE - 1)/HIDDEN_SIZE, HIDDEN_SIZE, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
+  relu_cal<<<(N_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[d]>>>(input->d_buf, output->d_buf, N_);
 }
 
 /*
