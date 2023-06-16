@@ -237,13 +237,13 @@ typedef struct {
 } trans_args;
 
 
-template<bool use_expf>
+template<bool is_first>
 __global__ void reduce_sum_cal(const float *input, float *output, int M) {
   __shared__ float smem[NUM_THREADS];
   unsigned int tid = threadIdx.x;
   unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
   // load input into __shared__ memory
-  if (use_expf) {
+  if (is_first) {
     smem[tid] = (i < M) ? expf(input[i]) : 0;
   } else {
     smem[tid] = (i < M) ? input[i] : 0;
