@@ -47,10 +47,10 @@ struct Tensor {
   int num_elem();
   void fill_zeros(int d);
   void to_device(int d);
-  void to_host(int d);
+  void to_host(int d, int s_idx);
   void copy_from(Tensor *t);
-  void print_device_value(int d);
-  int check_values(int d);
+  void print_device_value(int d, int s_idx);
+  int check_values(int d, int s_idx);
 
   float *buf = nullptr;
   float *d_buf = nullptr;
