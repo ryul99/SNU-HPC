@@ -210,6 +210,7 @@ Tensor *decoder_out[NUM_STREAMS][NUM_GPUS], *decoder_logsoftmax[NUM_STREAMS][NUM
 void embedding(int ei, Tensor *weight, Tensor *output, int d, int s_idx);
 void elemwise_add(Tensor *input1, Tensor *input2, Tensor *output, int d, int s_idx);
 void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output, int d, int s_idx);
+void linear2_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, Tensor *bias1, Tensor *bias2, Tensor *output, int d, int s_idx);
 void elemwise_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *output, int d, int s_idx);
 void elemwise_add_tanh(Tensor *input1, Tensor *input2, Tensor *output, int d, int s_idx);
 void elemwise_mult(Tensor *input1, Tensor *input2, Tensor *output, int d, int s_idx);
@@ -230,6 +231,7 @@ __global__ void elemwise_mult_cal(const float *input1, const float *input2, floa
 __global__ void elemwise_oneminus_cal(const float *input, float *output, int M);
 __global__ void softmax_cal(const float *input, float *output, float *sum, int M);
 __global__ void relu_cal(const float *input, float *output, int M);
+__global__ void linear2_add_sigmoid_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, float *output, int M, int K);
 
 typedef struct {
   int d;
@@ -294,14 +296,10 @@ void *translate(void *args) {
       embedding(ei, eW_emb[d], encoder_embedded[s_idx][d], d, s_idx);
       // GRU
       // r_t
-      linear(encoder_embedded[s_idx][d], eW_ir[d], eb_ir[d], encoder_rtmp2[s_idx][d], d, s_idx);
-      linear(encoder_hidden[s_idx][d], eW_hr[d], eb_hr[d], encoder_rtmp4[s_idx][d], d, s_idx);
-      elemwise_add_sigmoid(encoder_rtmp2[s_idx][d], encoder_rtmp4[s_idx][d], encoder_rt[s_idx][d], d, s_idx);
+      linear2_add_sigmoid(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_ir[d], eW_hr[d], eb_ir[d], eb_hr[d], encoder_rt[s_idx][d], d, s_idx);
 
       // z_t
-      linear(encoder_embedded[s_idx][d], eW_iz[d], eb_iz[d], encoder_ztmp2[s_idx][d], d, s_idx);
-      linear(encoder_hidden[s_idx][d], eW_hz[d], eb_hz[d], encoder_ztmp4[s_idx][d], d, s_idx);
-      elemwise_add_sigmoid(encoder_ztmp2[s_idx][d], encoder_ztmp4[s_idx][d], encoder_zt[s_idx][d], d, s_idx);
+      linear2_add_sigmoid(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_iz[d], eW_hz[d], eb_iz[d], eb_hz[d], encoder_zt[s_idx][d], d, s_idx);
 
       // n_t
       linear(encoder_embedded[s_idx][d], eW_in[d], eb_in[d], encoder_ntmp2[s_idx][d], d, s_idx);
@@ -338,14 +336,10 @@ void *translate(void *args) {
 
       // GRU
       // r_t
-      linear(decoder_relu[s_idx][d], dW_ir[d], db_ir[d], decoder_rtmp2[s_idx][d], d, s_idx);
-      linear(decoder_hidden[s_idx][d], dW_hr[d], db_hr[d], decoder_rtmp4[s_idx][d], d, s_idx);
-      elemwise_add_sigmoid(decoder_rtmp2[s_idx][d], decoder_rtmp4[s_idx][d], decoder_rt[s_idx][d], d, s_idx);
+      linear2_add_sigmoid(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_ir[d], dW_hr[d], db_ir[d], db_hr[d], decoder_rt[s_idx][d], d, s_idx);
 
       // z_t
-      linear(decoder_relu[s_idx][d], dW_iz[d], db_iz[d], decoder_ztmp2[s_idx][d], d, s_idx);
-      linear(decoder_hidden[s_idx][d], dW_hz[d], db_hz[d], decoder_ztmp4[s_idx][d], d, s_idx);
-      elemwise_add_sigmoid(decoder_ztmp2[s_idx][d], decoder_ztmp4[s_idx][d], decoder_zt[s_idx][d], d, s_idx);
+      linear2_add_sigmoid(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_iz[d], dW_hz[d], db_iz[d], db_hz[d], decoder_zt[s_idx][d], d, s_idx);
       
       // n_t
       linear(decoder_relu[s_idx][d], dW_in[d], db_in[d], decoder_ntmp2[s_idx][d], d, s_idx);
@@ -565,6 +559,28 @@ void linear(Tensor *input, Tensor *weight, Tensor *bias, Tensor *output, int d, 
   #endif
 
   linear_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(input->d_buf, weight->d_buf, bias->d_buf, output->d_buf, M_, K_);
+}
+
+void linear2_add_sigmoid(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, Tensor *bias1, Tensor *bias2, Tensor *output, int d, int s_idx) {
+  CUDA_CALL(cudaSetDevice(d));
+  int M_ = weight1->shape[0];
+  int K_ = weight1->shape[1];
+
+  #if DEBUG
+  for (int m=0; m<M_; ++m) {
+    float c = 0.0;
+    for (int k=0; k<K_; ++k) {
+      float w1 = weight1->buf[m*K_+k];
+      float w2 = weight2->buf[m*K_+k];
+      float i1 = input1->buf[k];
+      float i2 = input2->buf[k];
+      c += w1*i1 + w2*i2;
+    }
+    output->buf[m] = 1.0 / (1.0 + exp(-(c + bias1->buf[m] + bias2->buf[m])));
+  }
+  #endif
+
+  linear2_add_sigmoid_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(input1->d_buf, input2->d_buf, weight1->d_buf, weight2->d_buf, bias1->d_buf, bias2->d_buf, output->d_buf, M_, K_);
 }
 
 /*
@@ -1134,6 +1150,21 @@ __global__ void relu_cal(const float *input, float *output, int M) {
   int m = blockIdx.x * blockDim.x + threadIdx.x;
   if (m < M) {
     output[m] = fmaxf(input[m], 0);
+  }
+}
+
+// add_sigmoid(linear, linear)
+__global__ void linear2_add_sigmoid_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, float *output, int M, int K) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    float sum = 0.0;
+    for (int i = 0; i < K; i++) {
+      sum += weight1[m * K + i] * input1[i];
+    }
+    for (int i = 0; i < K; i++) {
+      sum += weight2[m * K + i] * input2[i];
+    }
+    output[m] = 1.0 / (1.0 + exp(- (sum + bias1[m] + bias2[m])));
   }
 }
 
