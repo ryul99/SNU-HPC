@@ -224,6 +224,9 @@ int  log_top_one(Tensor *input, int d, int s_idx);
 void load_parameters(int d);
 void n_t_part(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, Tensor *bias1, Tensor *bias2, Tensor *input_mul, Tensor *output, int d, int s_idx);
 void h_t_part(Tensor *input_zt, Tensor *input_nt, Tensor *hidden, int d, int s_idx);
+void GRU_part(Tensor *embedded, Tensor *hidden,
+Tensor *w_r_1, Tensor *w_r_2, Tensor *w_z_1, Tensor *w_z_2, Tensor *w_n_1, Tensor *w_n_2,
+Tensor *b_r_1, Tensor *b_r_2, Tensor *b_z_1, Tensor *b_z_2, Tensor *b_n_1, Tensor *b_n_2, int d, int s_idx);
 
 __global__ void linear_cal(const float *input, const float *weight, const float *bias, float *output, int M, int N);
 __global__ void bmm_cal(const float *input, const float *weight, float *output, int K, int N);
@@ -237,6 +240,10 @@ __global__ void relu_cal(const float *input, float *output, int M);
 __global__ void linear2_add_sigmoid_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, float *output, int M, int K);
 __global__ void n_t_part_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, const float *input_mul, float *output, int M, int K);
 __global__ void h_t_part_cal(const float *input_zt, const float *input_nt, float *hidden, int M);
+__global__ void GRU_part_cal(const float *embedded, float *hidden,
+const float *w_r_1, const float *w_r_2, const float *w_z_1, const float *w_z_2, const float *w_n_1, const float *w_n_2,
+const float *b_r_1, const float *b_r_2, const float *b_z_1, const float *b_z_2, const float *b_n_1, const float *b_n_2,
+int M, int K);
 
 typedef struct {
   int d;
@@ -300,17 +307,9 @@ void *translate(void *args) {
       int ei = input->buf[n * MAX_LENGTH + i];
       embedding(ei, eW_emb[d], encoder_embedded[s_idx][d], d, s_idx);
       // GRU
-      // r_t
-      linear2_add_sigmoid(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_ir[d], eW_hr[d], eb_ir[d], eb_hr[d], encoder_rt[s_idx][d], d, s_idx);
-
-      // z_t
-      linear2_add_sigmoid(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_iz[d], eW_hz[d], eb_iz[d], eb_hz[d], encoder_zt[s_idx][d], d, s_idx);
-
-      // n_t
-      n_t_part(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_in[d], eW_hn[d], eb_in[d], eb_hn[d], encoder_rt[s_idx][d], encoder_nt[s_idx][d], d, s_idx);
-
-      // h_t
-      h_t_part(encoder_zt[s_idx][d], encoder_nt[s_idx][d], encoder_hidden[s_idx][d], d, s_idx);
+      GRU_part(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d],
+      eW_ir[d], eW_hr[d], eW_iz[d], eW_hz[d], eW_in[d], eW_hn[d],
+      eb_ir[d], eb_hr[d], eb_iz[d], eb_hz[d], eb_in[d], eb_hn[d], d, s_idx);
 
       copy_encoder_outputs(encoder_hidden[s_idx][d], encoder_outputs[s_idx][d], i, d, s_idx);
     } // end Encoder loop
@@ -334,17 +333,9 @@ void *translate(void *args) {
       relu(decoder_attn_comb[s_idx][d], decoder_relu[s_idx][d], d, s_idx);
 
       // GRU
-      // r_t
-      linear2_add_sigmoid(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_ir[d], dW_hr[d], db_ir[d], db_hr[d], decoder_rt[s_idx][d], d, s_idx);
-
-      // z_t
-      linear2_add_sigmoid(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_iz[d], dW_hz[d], db_iz[d], db_hz[d], decoder_zt[s_idx][d], d, s_idx);
-      
-      // n_t
-      n_t_part(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_in[d], dW_hn[d], db_in[d], db_hn[d], decoder_rt[s_idx][d], decoder_nt[s_idx][d], d, s_idx);
-
-      // h_t
-      h_t_part(decoder_zt[s_idx][d], decoder_nt[s_idx][d], decoder_hidden[s_idx][d], d, s_idx);
+      GRU_part(decoder_relu[s_idx][d], decoder_hidden[s_idx][d],
+      dW_ir[d], dW_hr[d], dW_iz[d], dW_hz[d], dW_in[d], dW_hn[d],
+      db_ir[d], db_hr[d], db_iz[d], db_hz[d], db_in[d], db_hn[d], d, s_idx);
 
       // Select output token
       linear(decoder_hidden[s_idx][d], dW_out[d], db_out[d], decoder_out[s_idx][d], d, s_idx);
@@ -590,7 +581,7 @@ void n_t_part(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, 
       float w2 = weight2->buf[m*K_+k];
       float i1 = input1->buf[k];
       float i2 = input2->buf[k];
-      sum1 += w1*i1
+      sum1 += w1*i1;
       sum2 += w2*i2;
     }
     sum1 += bias1->buf[m];
@@ -617,6 +608,39 @@ void h_t_part(Tensor *input_zt, Tensor *input_nt, Tensor *hidden, int d, int s_i
   #endif
 
   h_t_part_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(input_zt->d_buf, input_nt->d_buf, hidden->d_buf, M_);
+}
+
+void GRU_part(Tensor *embedded, Tensor *hidden,
+Tensor *w_r_1, Tensor *w_r_2, Tensor *w_z_1, Tensor *w_z_2, Tensor *w_n_1, Tensor *w_n_2,
+Tensor *b_r_1, Tensor *b_r_2, Tensor *b_z_1, Tensor *b_z_2, Tensor *b_n_1, Tensor *b_n_2, int d, int s_idx) {
+  CUDA_CALL(cudaSetDevice(d));
+  int M_ = w_r_1->shape[0];
+  int K_ = w_r_1->shape[1];
+
+  #if DEBUG
+  for (int m=0; m<M_; ++m) {
+    float rt = b_r_1->buf[m] + b_r_2->buf[m];
+    float zt = b_z_1->buf[m] + b_z_2->buf[m];
+    float nt_1 = b_n_1->buf[m];
+    float nt_2 = b_n_2->buf[m];
+    for (int k=0; k<K_; ++k) {
+      rt += w_r_1->buf[m*K_+k]*embedded->buf[k] + w_r_2->buf[m*K_+k]*hidden->buf[k];
+      zt += w_z_1->buf[m*K_+k]*embedded->buf[k] + w_z_2->buf[m*K_+k]*hidden->buf[k];
+      nt_1 += w_n_1->buf[m*K_+k]*embedded->buf[k];
+      nt_2 += w_n_2->buf[m*K_+k]*hidden->buf[k];
+    }
+    rt = 1.0 / (1.0 + exp(-rt));
+    zt = 1.0 / (1.0 + exp(-zt));
+    nt_2 *= rt;
+    nt_2 += nt_1;
+    nt_2 = tanhf(nt_2);
+    hidden->buf[m] = zt*hidden->buf[m] + (1.0 - zt)*nt_2;
+  }
+  #endif
+
+  GRU_part_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(embedded->d_buf, hidden->d_buf,
+  w_r_1->d_buf, w_r_2->d_buf, w_z_1->d_buf, w_z_2->d_buf, w_n_1->d_buf, w_n_2->d_buf,
+  b_r_1->d_buf, b_r_2->d_buf, b_z_1->d_buf, b_z_2->d_buf, b_n_1->d_buf, b_n_2->d_buf, M_, K_);
 }
 
 /*
@@ -1228,6 +1252,42 @@ __global__ void h_t_part_cal(const float *input_zt, const float *input_nt, float
   if (m < M) {
     float zt = input_zt[m];
     hidden[m] = (zt * hidden[m]) + (input_nt[m] * (1.0 - zt)) ;
+  }
+}
+
+__global__ void GRU_part_cal(const float *embedded, float *hidden,
+const float *w_r_1, const float *w_r_2, const float *w_z_1, const float *w_z_2, const float *w_n_1, const float *w_n_2,
+const float *b_r_1, const float *b_r_2, const float *b_z_1, const float *b_z_2, const float *b_n_1, const float *b_n_2,
+int M, int K) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  __shared__ float emm[HIDDEN_SIZE];
+  __shared__ float hidd[HIDDEN_SIZE];
+  
+  for (int tid = threadIdx.x; tid < K; tid += blockDim.x) {
+    emm[tid] = embedded[tid];
+    hidd[tid] = hidden[tid];
+  }
+
+  __syncthreads();
+  if (m < M) {
+    float rt = b_r_1[m] + b_r_2[m];
+    float zt = b_z_1[m] + b_z_2[m];
+    float nt_1 = b_n_1[m];
+    float nt_2 = b_n_2[m];
+    for (int i = 0; i < K; i++) {
+      rt += w_r_1[m * K + i] * emm[i];
+      rt += w_r_2[m * K + i] * hidd[i];
+      zt += w_z_1[m * K + i] * emm[i];
+      zt += w_z_2[m * K + i] * hidd[i];
+      nt_1 += w_n_1[m * K + i] * emm[i];
+      nt_2 += w_n_2[m * K + i] * hidd[i];
+    }
+    rt = 1.0 / (1.0 + exp(-rt));
+    zt = 1.0 / (1.0 + exp(-zt));
+    nt_2 *= rt;
+    nt_2 += nt_1;
+    nt_2 = tanhf(nt_2);
+    hidden[m] = (zt * hidd[m]) + ((1.0 - zt) * nt_2);
   }
 }
 
