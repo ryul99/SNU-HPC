@@ -222,6 +222,9 @@ void bmm(Tensor *input, Tensor *weight, Tensor *output, int d, int s_idx);
 void relu(Tensor *input, Tensor *output, int d, int s_idx);
 int  log_top_one(Tensor *input, int d, int s_idx);
 void load_parameters(int d);
+void n_t_part(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, Tensor *bias1, Tensor *bias2, Tensor *input_mul, Tensor *output, int d, int s_idx);
+void h_t_part(Tensor *input_zt, Tensor *input_nt, Tensor *hidden, int d, int s_idx);
+
 __global__ void linear_cal(const float *input, const float *weight, const float *bias, float *output, int M, int N);
 __global__ void bmm_cal(const float *input, const float *weight, float *output, int K, int N);
 __global__ void elemwise_add_cal(const float *input1, const float *input2, float *output, int M);
@@ -233,7 +236,7 @@ __global__ void softmax_cal(const float *input, float *output, float *sum, int M
 __global__ void relu_cal(const float *input, float *output, int M);
 __global__ void linear2_add_sigmoid_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, float *output, int M, int K);
 __global__ void n_t_part_cal(const float *input1, const float *input2, const float *weight1, const float *weight2, const float *bias1, const float *bias2, const float *input_mul, float *output, int M, int K);
-void n_t_part(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, Tensor *bias1, Tensor *bias2, Tensor *input_mul, Tensor *output, int d, int s_idx);
+__global__ void h_t_part_cal(const float *input_zt, const float *input_nt, float *hidden, int M);
 
 typedef struct {
   int d;
@@ -307,10 +310,7 @@ void *translate(void *args) {
       n_t_part(encoder_embedded[s_idx][d], encoder_hidden[s_idx][d], eW_in[d], eW_hn[d], eb_in[d], eb_hn[d], encoder_rt[s_idx][d], encoder_nt[s_idx][d], d, s_idx);
 
       // h_t
-      elemwise_oneminus(encoder_zt[s_idx][d], encoder_htmp1[s_idx][d], d, s_idx);
-      elemwise_mult(encoder_htmp1[s_idx][d], encoder_nt[s_idx][d], encoder_htmp2[s_idx][d], d, s_idx);
-      elemwise_mult(encoder_zt[s_idx][d], encoder_hidden[s_idx][d], encoder_htmp3[s_idx][d], d, s_idx);
-      elemwise_add(encoder_htmp2[s_idx][d], encoder_htmp3[s_idx][d], encoder_hidden[s_idx][d], d, s_idx);
+      h_t_part(encoder_zt[s_idx][d], encoder_nt[s_idx][d], encoder_hidden[s_idx][d], d, s_idx);
 
       copy_encoder_outputs(encoder_hidden[s_idx][d], encoder_outputs[s_idx][d], i, d, s_idx);
     } // end Encoder loop
@@ -344,10 +344,7 @@ void *translate(void *args) {
       n_t_part(decoder_relu[s_idx][d], decoder_hidden[s_idx][d], dW_in[d], dW_hn[d], db_in[d], db_hn[d], decoder_rt[s_idx][d], decoder_nt[s_idx][d], d, s_idx);
 
       // h_t
-      elemwise_oneminus(decoder_zt[s_idx][d], decoder_htmp1[s_idx][d], d, s_idx);
-      elemwise_mult(decoder_htmp1[s_idx][d], decoder_nt[s_idx][d], decoder_htmp2[s_idx][d], d, s_idx);
-      elemwise_mult(decoder_zt[s_idx][d], decoder_hidden[s_idx][d], decoder_htmp3[s_idx][d], d, s_idx);
-      elemwise_add(decoder_htmp2[s_idx][d], decoder_htmp3[s_idx][d], decoder_hidden[s_idx][d], d, s_idx);
+      h_t_part(decoder_zt[s_idx][d], decoder_nt[s_idx][d], decoder_hidden[s_idx][d], d, s_idx);
 
       // Select output token
       linear(decoder_hidden[s_idx][d], dW_out[d], db_out[d], decoder_out[s_idx][d], d, s_idx);
@@ -606,6 +603,21 @@ void n_t_part(Tensor *input1, Tensor *input2, Tensor *weight1, Tensor *weight2, 
   n_t_part_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(input1->d_buf, input2->d_buf, weight1->d_buf, weight2->d_buf, bias1->d_buf, bias2->d_buf, input_mul->d_buf, output->d_buf, M_, K_);
 }
 
+void h_t_part(Tensor *input_zt, Tensor *input_nt, Tensor *hidden, int d, int s_idx) {
+  CUDA_CALL(cudaSetDevice(d));
+  int M_ = input_zt->shape[0];
+
+  #if DEBUG
+  for (int m=0; m<M_; ++m) {
+    float zt = input_zt->buf[m];
+    float nt = input_nt->buf[m];
+    float h = hidden->buf[m];
+    hidden->buf[m] = zt*h + (1.0 - zt)*nt;
+  }
+  #endif
+
+  h_t_part_cal<<<(M_ + NUM_THREADS - 1)/NUM_THREADS, NUM_THREADS, 0, stream[s_idx][d]>>>(input_zt->d_buf, input_nt->d_buf, hidden->d_buf, M_);
+}
 
 /*
  * elemwise_mult
@@ -1208,6 +1220,14 @@ __global__ void n_t_part_cal(const float *input1, const float *input2, const flo
     sum2 += bias2[m];
     sum2 *= input_mul[m];
     output[m] = tanhf(sum1 + sum2);
+  }
+}
+
+__global__ void h_t_part_cal(const float *input_zt, const float *input_nt, float *hidden, int M) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  if (m < M) {
+    float zt = input_zt[m];
+    hidden[m] = (zt * hidden[m]) + (input_nt[m] * (1.0 - zt)) ;
   }
 }
 
